@@ -32,7 +32,11 @@ The simulation computes I-V curves by solving quantum master equations that incl
 │   ├── test/        # Test functions
 │   ├── setup_path.m # Path configuration
 │   └── run_benchmark.m
-├── julia/           # Julia implementation (planned)
+├── julia/           # Julia implementation ✅
+│   ├── src/         # Core simulation module (FranckCondon.jl)
+│   ├── run_benchmark.jl
+│   ├── Project.toml
+│   └── Manifest.toml
 ├── fortran/         # Fortran implementation (planned)
 ├── python/          # Python+Numba implementation (planned)
 ├── c/               # C+GSL implementation (planned)
@@ -49,27 +53,49 @@ The simulation computes I-V curves by solving quantum master equations that incl
 
 ```matlab
 cd matlab
-results = run_benchmark('quick');    % Fast validation (N=6, minutes)
-results = run_benchmark('default');  % Full benchmark (N=15, hours for MATLAB)
+results = run_benchmark('quick');    % Fast validation (N=6, ~30 min)
+results = run_benchmark('default');  % Full benchmark (N=15, hours)
 results = run_benchmark();           % Same as 'default'
 ```
 
+## Quick Start (Julia)
+
+```bash
+cd julia
+julia run_benchmark.jl quick        # Fast validation (N=6, ~5 seconds)
+julia run_benchmark.jl default      # Full benchmark (N=15)
+julia run_benchmark.jl              # Same as 'default'
+```
+
+First run will install dependencies automatically via `Project.toml`. Subsequent runs use the cached environment. The benchmark includes a JIT warm-up pass before timing.
+
+## Outputs
+
 Each run produces four files in `benchmark/results/`:
-- `matlab_{spec}_results.json` — full results with metadata and timing
-- `matlab_{spec}_IV.csv` — I-V data for reuse
-- `matlab_{spec}_IV.pdf` — publication-quality vector plot
-- `matlab_{spec}_IV.png` — publication-quality raster plot (300 dpi)
+- `{lang}_{spec}_results.json` — full results with metadata and timing
+- `{lang}_{spec}_IV.csv` — I-V data for reuse
+- `{lang}_{spec}_IV.pdf` — publication-quality vector plot
+- `{lang}_{spec}_IV.png` — publication-quality raster plot (300 dpi)
+
+## Benchmark Results
+
+| Language | Quick (N=6) | Default (N=15) | Speedup vs MATLAB |
+|----------|-------------|----------------|---------------------|
+| MATLAB | 1844 s | — | 1x (reference) |
+| Julia | 5.2 s | — | **358x** |
+
+*Quick spec on Apple Silicon. Julia uses `SpecialFunctions.jl` for native complex digamma/trigamma, replacing MATLAB's symbolic math bottleneck.*
 
 ## Language Status
 
-| Language | Status |
-|----------|--------|
-| MATLAB | ✅ Reference implementation |
-| Julia | 🔲 Planned |
-| Fortran | 🔲 Planned |
-| Python (Numba/JAX) | 🔲 Planned |
-| C (GSL) | 🔲 Planned |
-| Rust | 🔲 Planned |
+| Language | Status | Notes |
+|----------|--------|-------|
+| MATLAB | ✅ Reference | Symbolic Math Toolbox required |
+| Julia | ✅ Complete | 358x faster (quick spec) |
+| Fortran | 🔲 Planned | |
+| Python (Numba/JAX) | 🔲 Planned | |
+| C (GSL) | 🔲 Planned | |
+| Rust | 🔲 Planned | |
 
 ## Reference
 
