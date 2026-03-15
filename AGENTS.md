@@ -78,13 +78,29 @@ The FC element ⟨q₂|D(λ)|q₁⟩ is computed using generalized Laguerre poly
 - Current in units of e (multiply by elementary charge for SI Amperes)
 - Lead index: +1 for left, -1 for right
 
+## Benchmark Structure
+
+Two parameter specs exist in `benchmark/spec/`:
+
+| Spec | File | N | Use |
+|------|------|---|-----|
+| quick | `quick_params.json` | 6 | Fast validation, development iteration |
+| default | `default_params.json` | 15 | Publication-quality results, real benchmark |
+
+Each benchmark run produces four outputs in `benchmark/results/`:
+- `{lang}_{spec}_results.json` — full results + metadata
+- `{lang}_{spec}_IV.csv` — I-V data (Vsd, I_tol, I_seq, I_cot)
+- `{lang}_{spec}_IV.pdf` — publication-quality plot (vector)
+- `{lang}_{spec}_IV.png` — publication-quality plot (300 dpi)
+
 ## How to Add a New Language Port
 
 1. Create a `{language}/` directory at the project root.
 2. Read all parameters from `benchmark/spec/default_params.json`. Do not hardcode.
 3. Implement the simulation pipeline following the architecture diagram above.
 4. Output results in the JSON format specified in `BENCHMARK.md`.
-5. Validate against the MATLAB reference results using the tolerance check in `BENCHMARK.md`.
-6. Follow the benchmark protocol (warm-up for JIT, minimum 3 timed runs, report median).
+5. Generate a publication-quality I-V plot (PDF + PNG) with three curves (I_tol, I_seq, I_cot).
+6. Validate against the MATLAB reference results using the tolerance check in `BENCHMARK.md`.
+7. Follow the benchmark protocol (warm-up for JIT, minimum 3 timed runs, report median).
 
 The MATLAB source in `matlab/src/` is the ground truth for numerical behavior. When in doubt about a formula or sign convention, read the MATLAB code and the Koch et al. paper.

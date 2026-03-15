@@ -14,7 +14,7 @@ The simulation computes I-V curves by solving quantum master equations that incl
 
 | Parameter | Symbol | Description | Default |
 |-----------|--------|-------------|---------|
-| N | N | Number of phonon Fock states | 6 |
+| N | N | Number of phonon Fock states | 15 (default) / 6 (quick) |
 | vmode | ℏω | Phonon energy | 73 meV |
 | alphaL/R | Γ_L,R / ℏω | Tunnel coupling ratios | 0.02 |
 | lambda | λ | Electron-phonon coupling | 5 |
@@ -38,8 +38,8 @@ The simulation computes I-V curves by solving quantum master equations that incl
 ├── c/               # C+GSL implementation (planned)
 ├── rust/            # Rust implementation (planned)
 ├── benchmark/
-│   ├── spec/        # Benchmark specification
-│   └── results/     # Benchmark outputs (JSON)
+│   ├── spec/        # Benchmark parameters (quick + default)
+│   └── results/     # Outputs: JSON, CSV, PDF, PNG per language
 ├── README.md
 ├── BENCHMARK.md     # Benchmark specification
 └── AGENTS.md        # AI agent knowledge base
@@ -49,9 +49,16 @@ The simulation computes I-V curves by solving quantum master equations that incl
 
 ```matlab
 cd matlab
-setup_path()
-results = run_benchmark();  % Runs simulation + timing, saves JSON
+results = run_benchmark('quick');    % Fast validation (N=6, minutes)
+results = run_benchmark('default');  % Full benchmark (N=15, hours for MATLAB)
+results = run_benchmark();           % Same as 'default'
 ```
+
+Each run produces four files in `benchmark/results/`:
+- `matlab_{spec}_results.json` — full results with metadata and timing
+- `matlab_{spec}_IV.csv` — I-V data for reuse
+- `matlab_{spec}_IV.pdf` — publication-quality vector plot
+- `matlab_{spec}_IV.png` — publication-quality raster plot (300 dpi)
 
 ## Language Status
 
