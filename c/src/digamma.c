@@ -74,17 +74,18 @@ double _Complex trigamma_c(double _Complex z) {
         z_work = 1.0 - z_work;
     }
 
-    while (cabs(z_work) < 20.0) {
+    while (cabs(z_work) < 10.0) {
         result += 1.0 / (z_work * z_work);
         z_work += 1.0;
     }
 
-    result += 1.0 / z_work + 1.0 / (2.0 * z_work * z_work);
-    double _Complex z_sq = z_work * z_work;
-    double _Complex power = z_sq * z_work;
-    for (int k = 0; k < 20; ++k) {
-        result += BERNOULLI_EVEN[k] / power;
-        power *= z_sq;
+    double _Complex iz = 1.0 / z_work;
+    double _Complex iz2 = iz * iz;
+    result += iz + 0.5 * iz2;
+    double _Complex power = iz2 * iz;
+    for (int k = 0; k < 10; ++k) {
+        result += BERNOULLI_EVEN[k] * power;
+        power *= iz2;
     }
 
     if (reflection) {
