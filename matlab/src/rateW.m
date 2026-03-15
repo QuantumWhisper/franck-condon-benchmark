@@ -16,40 +16,6 @@ Vg - gate
 see: generateMatrixW, rateW_lead
 %}
 % check it if has been calculated before
-%{
-fname = 'rateW4DCache.mat';
-folder = pwd;
-fpath = fullfile(folder,fname);
-rateW4DON = false;
-if exist(fpath,"file") == 2
-    temp = load(fpath);
-    rateW4DCache = temp.rateW4DCache;
-else
-    rateW4DCache = struct;
-end
-value = [N,vmode,alphaL,alphaR,lambda,Vsd,T,eta,lead,Vg];
-[rateW4DCache,settingValue,flag] = get_set_values(rateW4DCache,'setting',value);
-if ~flag
-
-else
-    rateW4D = rateW4DCache.rateW4Ds{settingValue};
-    rateW4DON = true;
-end
-if rateW4DON
-    w = rateWFast(rateW4D,n1,n2,q1,q2);
-    return
-end
-%}
-%{
-if isempty(rateW4DCache)
-else
-    value = [N,vmode,alphaL,alphaR,lambda,Vsd,T,eta,lead,Vg];
-    [rateW4DCache,settingValue,~] = get_set_values(rateW4DCache,'setting',value);
-    rateW4D = rateW4DCache.rateW4Ds{settingValue};
-    w = rateWFast(rateW4D,n1,n2,q1,q2);
-    return
-end
-%}
 %fprintf('seeing this...\n')
 %T = 4.2; % K
 %N = max([q1,q2]);
@@ -67,4 +33,3 @@ else
 end
 
 end
-

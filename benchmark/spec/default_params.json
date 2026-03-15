@@ -1,0 +1,44 @@
+{
+    "description": "Franck-Condon blockade I-V simulation benchmark parameters",
+    "reference": "Koch, von Oppen, Glazman, PRB 74, 205438 (2006)",
+    "parameters": {
+        "N": 6,
+        "vmode": 0.073,
+        "alphaL": 0.02,
+        "alphaR": 0.02,
+        "lambda": 5,
+        "T": 4.2,
+        "eta": 0.5,
+        "Vg": 0,
+        "tau": "Inf"
+    },
+    "bias_sweep": {
+        "Vsd_start": 0.0,
+        "Vsd_end": 0.6,
+        "Vsd_step": 0.003
+    },
+    "units": {
+        "N": "number of phonon states",
+        "vmode": "eV (phonon mode energy, hbar*omega)",
+        "alphaL": "dimensionless (Gamma_L / hbar*omega)",
+        "alphaR": "dimensionless (Gamma_R / hbar*omega)",
+        "lambda": "dimensionless (electron-phonon coupling)",
+        "T": "K (temperature)",
+        "eta": "dimensionless (voltage division, 0.5 = symmetric)",
+        "Vg": "V (gate voltage)",
+        "tau": "s (phonon relaxation time, Inf = unequilibrated)",
+        "Vsd": "V (source-drain bias)"
+    },
+    "output_spec": {
+        "format": "JSON",
+        "fields": {
+            "Vsd": "array of bias voltages (V)",
+            "I_tol": "array of total current (A)",
+            "I_seq": "array of sequential tunneling current (A)",
+            "I_cot": "array of cotunneling current (A)",
+            "wall_time_seconds": "total wall time for the simulation",
+            "language": "implementation language",
+            "version": "language/runtime version"
+        }
+    }
+}

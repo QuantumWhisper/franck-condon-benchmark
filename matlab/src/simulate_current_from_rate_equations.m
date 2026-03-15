@@ -4,7 +4,7 @@ function fig = simulate_current_from_rate_equations
 % last update date: 2023-May-21
 
 tic
-[N,vmode,alphaL,alphaR,lambda,Vsd,T,eta,lead,Vg,tau] = setParameters;
+[N,vmode,alphaL,alphaR,lambda,Vsd,T,eta,Vg,tau] = setParameters;
 Vsd = 0:0.003:0.6;
 N = 6;
 lambda = 5;
@@ -24,7 +24,7 @@ for vv = 1:nVsd
     calculateAllRateW(N,vmode,alphaL,alphaR,lambda,v,T,eta,1,Vg);
     calculateAllRateW(N,vmode,alphaL,alphaR,lambda,v,T,eta,-1,Vg);
     rateW4DCache = [];
-    [I_tol(vv),I_seq(vv),I_cot(vv)] = current_from_rate_equations(v,N,vmode,alphaL,alphaR,lambda,T,eta,lead,Vg,tau,rateW4DCache);
+    [I_tol(vv),I_seq(vv),I_cot(vv)] = current_from_rate_equations(v,N,vmode,alphaL,alphaR,lambda,T,eta,Vg,tau,rateW4DCache);
     I_tol(vv) = -sign(v)*I_tol(vv);
     I_seq(vv) = -sign(v)*I_seq(vv);
     I_cot(vv) = -sign(v)*I_cot(vv);
@@ -33,9 +33,6 @@ end
 I_tol = ee_ElementaryCharge*I_tol;
 I_seq = I_seq*ee_ElementaryCharge;
 I_cot = I_cot*ee_ElementaryCharge;
-assignin("base","I_tol",I_tol)
-assignin("base","I_seq",I_seq)
-assignin("base","I_cot",I_cot)
 plot(cax1,Vsd,I_tol,'o')
 hold(cax1,"on")
 plot(cax1,Vsd,I_seq)
@@ -51,12 +48,12 @@ ylabel(cax1,'Current (A)')
 fprintf('Finish running simulate_current_from_rate_equations in %.2f s\n',toc)
 
 end
-function [N,vmode,alphaL,alphaR,lambda,Vsd,T,eta,lead,Vg,tau] = setParameters
+function [N,vmode,alphaL,alphaR,lambda,Vsd,T,eta,Vg,tau] = setParameters
 tau = Inf;%;Inf;%1e-9;
 
 try
-    [vmode,alphaL,alphaR,lambda,Vsd,T,eta,lead,Vg] = FC_IV_analyze_rateW4DCache;
-    % [N,vmode,alphaL,alphaR,lambda,Vsd,T,eta,lead,Vg]
+    [vmode,alphaL,alphaR,lambda,Vsd,T,eta,~,Vg] = FC_IV_analyze_rateW4DCache;
+    % [N,vmode,alphaL,alphaR,lambda,Vsd,T,eta,Vg]
     Vg = 0;% Vg(1);
     N = 8;
     %error('0')
@@ -71,7 +68,6 @@ catch ME
     lambda = 1.5;
     T = 4.2;
     eta = 1/2;
-    lead = 1; % -1
     Vg = 0;
     Vsd = 0:0.01:0.6;%:0.02:0.3;
 end

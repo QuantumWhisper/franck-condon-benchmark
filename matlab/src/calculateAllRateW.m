@@ -30,7 +30,6 @@ for n1 = 0:1
     end
 end
 
-assignin("base","rateW4DCache",rateW4D)
 temp_m_rateW = memoize(@m_rateW);
 save(fpath,'temp_m_rateW')
 fprintf('\nCache successfully saved at:%s\n',fpath)
