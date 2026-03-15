@@ -21,6 +21,15 @@ __pycache__/
 *.nbc
 *.nbi
 
+# Rust
+rust/target/
+rust/Cargo.lock
+
+# C build artifacts
+c/*.o
+c/src/*.o
+c/c_benchmark
+
 # Editor
 *.swp
 *~

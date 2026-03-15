@@ -48,7 +48,7 @@ The simulation computes I-V curves by solving quantum master equations that incl
 │   ├── cJSON.h/.c   # Vendored JSON library
 │   └── c_benchmark  # Compiled binary
 ├── fortran/         # Fortran implementation (planned)
-├── rust/            # Rust implementation (planned)
+├── rust/            # Rust implementation ✅
 ├── benchmark/
 │   ├── spec/        # Benchmark parameters (quick + default)
 │   └── results/     # Outputs: JSON, CSV, PDF, PNG per language
@@ -102,6 +102,18 @@ make
 
 Requires GSL (GNU Scientific Library) for QR decomposition and complex digamma. Uses cJSON (vendored) for JSON I/O and gnuplot for PDF/PNG plots. No warm-up needed (compiled, not JIT).
 
+## Quick Start (Rust)
+
+```bash
+cd rust
+cargo build --release
+./target/release/rust_benchmark quick     # Fast validation (N=6, ~7 seconds)
+./target/release/rust_benchmark default   # Full benchmark (N=15)
+./target/release/rust_benchmark           # Same as 'default'
+```
+
+Pure Rust implementation with no C/FFI dependencies. Uses `num-complex` for complex arithmetic, `nalgebra` for QR decomposition, and custom asymptotic series for complex digamma/trigamma. Includes the factored digamma precomputation optimization from the C port. Uses gnuplot for PDF/PNG plots.
+
 ## Outputs
 
 Each run produces four files in `benchmark/results/`:
@@ -116,10 +128,11 @@ Each run produces four files in `benchmark/results/`:
 |----------|-------------|----------------|---------------------|
 | MATLAB | 1844 s | — | 1x (reference) |
 | Python | 11 s | — | **169x** |
+| Rust | 7.2 s | — | **254x** |
 | Julia | 5.2 s | — | **358x** |
 | C (GSL) | 2.3 s | — | **809x** |
 
-*Quick spec on Apple Silicon. All ports replace MATLAB's symbolic digamma bottleneck with native complex implementations. C achieves top speed via factored digamma precomputation in regularized integrals (O(N) instead of O(N²) calls).*
+*Quick spec on Apple Silicon. All ports replace MATLAB's symbolic digamma bottleneck with native complex implementations. C achieves top speed via GSL's optimized digamma + factored precomputation in regularized integrals (O(N) instead of O(N²) calls). Rust uses the same factored precomputation but with a pure Rust asymptotic series digamma.*
 
 ## Language Status
 
@@ -129,8 +142,8 @@ Each run produces four files in `benchmark/results/`:
 | Julia | ✅ Complete | 358x faster (quick spec) |
 | Python (Numba) | ✅ Complete | 169x faster (quick spec) |
 | C (GSL) | ✅ Complete | 809x faster (quick spec) |
+| Rust | ✅ Complete | 254x faster (quick spec) |
 | Fortran | 🔲 Planned | |
-| Rust | 🔲 Planned | |
 
 ## Reference
 

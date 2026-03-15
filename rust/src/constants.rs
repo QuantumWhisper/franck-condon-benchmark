@@ -1,0 +1,3 @@
+pub const KB_EV: f64 = 8.617333262145e-5;
+pub const HBAR_EV: f64 = 6.582119569e-16;
+pub const ELEMENTARY_CHARGE: f64 = 1.60217663e-19;

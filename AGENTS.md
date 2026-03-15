@@ -302,3 +302,90 @@ The error budget is identical to the Julia and Python ports:
 - **cJSON is sufficient**: A 3000-line vendored library handles all the JSON I/O needs. No need for heavier dependencies like jansson or json-c.
 - **gnuplot via popen() is surprisingly capable**: LaTeX-quality labels, PDF vector output, and 300 dpi PNG — all from a simple script piped to `gnuplot`.
 - **convergence wrappers dominate runtime**: The `sumMMr`/`sumMMMMrs` convergence loops account for >95% of wall time. Any performance optimization should target the inner `regularized_I`/`regularized_J` calls.
+
+## Rust Implementation (rust/src/)
+
+The Rust port follows the C port structure (which is itself a faithful MATLAB translation). Pure Rust with no C/FFI dependencies — uses custom asymptotic series for complex digamma/trigamma instead of GSL.
+
+### Key Files
+
+| File | C Equivalent | Notes |
+|------|-------------|-------|
+| `lib.rs` | Module definition | Declares all submodules |
+| `constants.rs` | `constants.h` | Same exact values |
+| `laguerre.rs` | `laguerre.c` | Three-term recurrence, identical algorithm |
+| `fc_matrix.rs` | `fc_matrix.c` | Flat `Vec<f64>` cache (256×256), log-space overflow handling |
+| `fermi_bose.rs` | `fermi_bose.c` | Identical formulas |
+| `digamma.rs` | `digamma.c` | Pure Rust asymptotic series (no GSL FFI); 20 Bernoulli terms for digamma, 10 for trigamma |
+| `regularized.rs` | `regularized.c` | Factored digamma precomputation (O(N) instead of O(N²) digamma calls) |
+| `cotunneling.rs` | `cotunneling.c` | Convergence wrappers with selective recomputation; largest module |
+| `rate.rs` | `rate.c` | Flat `Vec<f64>` rate store indexed by `[n1][n2][q1][lead_idx][q2]` |
+| `matrix.rs` | `matrix.c` | Same index mapping, sigma functions, peq |
+| `solver.rs` | `solver.c` | `nalgebra` QR decomposition; augmented system, clamp+renormalize |
+| `current.rs` | `current.c` | Same sign conventions: 0→1 R−L, 1→0 L−R, cot RL−LR |
+| `simulate.rs` | `simulate.c` | FC cache on heap, rate store per bias point, `-sign(Vsd)` correction |
+| `json_io.rs` | `json_io.c` | `serde_json` for parsing; manual JSON/CSV writing for output |
+| `plotting.rs` | `plotting.c` | gnuplot via `std::process::Command`; PDF + PNG |
+| `main.rs` | `main.c` | `std::time::Instant` timing; 3 runs + median; validation excludes MATLAB solver artifacts |
+
+### Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Pure Rust digamma (no GSL FFI) | Zero C dependencies; factored precomputation makes per-call cost negligible |
+| 20-term Bernoulli series for digamma, 10-term for trigamma | Matches C port's algorithm exactly; full double precision |
+| Recurrence threshold \|z\|≥20 (digamma) and \|z\|≥10 (trigamma) | Same as C port; trades recurrence steps for series accuracy |
+| `num-complex` crate for `Complex64` | De facto standard; `.norm()`, `.ln()`, `.sin()`, `.cos()` all available |
+| `nalgebra` QR decomposition | Mature Rust linear algebra; matches C/Julia/Python augmented system approach |
+| Flat `Vec<f64>` for FC cache and rate store | Same pattern as C port; cache-friendly, no hash overhead |
+| `serde_json::Value` for JSON parsing | Handles `"tau": "Inf"` string vs number without custom deserializer |
+| Manual JSON/CSV writing (not serde serialization) | Full control over formatting (%.17g precision); matches C port output exactly |
+| gnuplot via `Command::new("gnuplot")` | Same approach as C port; graceful fallback if gnuplot unavailable |
+
+### Complex Digamma/Trigamma Strategy
+
+Rust has no standard library for complex polygamma functions. The implementation uses a pure Rust approach:
+
+1. **Digamma ψ(z)**: Custom asymptotic series with:
+   - Reflection formula for Re(z) ≤ 0: `ψ(z) = ψ(1−z) − π·cot(πz)`
+   - Recurrence shift until |z| ≥ 20: `ψ(z) = ψ(z+1) − 1/z`
+   - 20-term Bernoulli asymptotic expansion: `ψ(z) ≈ ln(z) − 1/(2z) − Σ B_{2k}/(2k·z^{2k})`
+
+2. **Trigamma ψ'(z)**: Custom asymptotic series with:
+   - Reflection formula for Re(z) ≤ 0: `ψ'(z) = (π/sin(πz))² − ψ'(1−z)`
+   - Recurrence shift until |z| ≥ 10: `ψ'(z) = ψ'(z+1) + 1/z²`
+   - 10-term Bernoulli asymptotic expansion: `ψ'(z) ≈ 1/z + 1/(2z²) + Σ B_{2k}/z^{2k+1}`
+
+The Bernoulli coefficients B₂ through B₄₀ are stored as `static` compile-time constants, computed as exact rational fractions.
+
+### Performance Notes
+
+The Rust port runs the quick spec (N=6) in ~7.2 seconds on Apple Silicon — a **254x speedup** over MATLAB (1844s), faster than Python (11s) but slower than Julia (5.2s) and C (2.3s).
+
+The performance gap vs C (3x) is primarily due to the digamma implementation:
+- C uses GSL's `gsl_sf_complex_psi_e` — hand-tuned C with Chebyshev approximation (~10ns/call)
+- Rust uses a 20-term Bernoulli asymptotic series with recurrence to |z|≥20 (~60ns/call)
+
+With the factored precomputation optimization (4×N instead of 4×N² digamma calls), this per-call overhead is significantly mitigated. Further optimization is possible by:
+- Wrapping GSL via FFI (would match C performance)
+- Reducing recurrence threshold and series terms (trade precision for speed)
+- Using a Chebyshev or Padé approximation instead of asymptotic series
+
+### Numerical Precision Notes
+
+The Rust port matches MATLAB to **7.65e-5 max relative error** at 199 of 201 bias points (quick spec), identical to the C port's error. The 2 outlier points (Vsd ≈ 0.219, 0.585) are the known MATLAB solver artifacts.
+
+The error budget is identical to all other ports:
+- Sequential tunneling (FC²×fermi): matches to ~1e-14
+- Cotunneling (digamma cancellation + ill-conditioned W): ~1e-5 due to ULP amplification
+- MATLAB solver artifacts at Vsd ≈ 0.219, 0.585: excluded from validation
+
+### Lessons from the Rust Port
+
+- **Pure Rust digamma is viable**: With factored precomputation, the per-call cost of a Rust asymptotic series is negligible. No need for GSL FFI unless targeting C-level performance.
+- **`num-complex` is production-ready**: Complex64 arithmetic, transcendentals, and formatting all work correctly. Use `.norm()` (not `.abs()`) for the complex modulus.
+- **`nalgebra` QR is correct for ill-conditioned systems**: The augmented system solver produces identical results to GSL's QR.
+- **Rust's borrow checker catches array aliasing bugs**: The C port's `sort3(&a[0], &a[1], &a[2])` pattern doesn't compile in Rust — use `arr.sort_by()` instead.
+- **`f64::INFINITY` and IEEE 754**: `1.0 / f64::INFINITY == 0.0` works in Rust just as `1.0/INFINITY` works in C, so `tau=Inf` requires no special handling.
+- **No CSV crate needed**: Manual `write!` with `{:.6e}` format matches the C port's `fprintf(fp, "%.6e")` output exactly.
+- **Minimal dependencies**: Only 4 crates (num-complex, serde, serde_json, nalgebra) — the entire simulation is pure Rust.
