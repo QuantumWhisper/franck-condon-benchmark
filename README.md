@@ -84,7 +84,7 @@ If you use this software in your research, please cite it. Click **"Cite this re
   author       = {Ning, Shanglong},
   title        = {Franck-Condon Benchmark: Multi-Language I-V Simulation for Single-Molecule Junctions},
   year         = {2026},
-  url          = {https://github.com/X0x888/franck-condon-benchmark}
+  url          = {https://github.com/QuantumWhisper/franck-condon-benchmark}
 }
 ```
 

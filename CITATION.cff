@@ -8,7 +8,7 @@ authors:
     email: s.ning@imperial.ac.uk
     orcid: "https://orcid.org/0009-0003-7185-4513"
     affiliation: "Imperial College London"
-repository-code: "https://github.com/X0x888/franck-condon-benchmark"
+repository-code: "https://github.com/QuantumWhisper/franck-condon-benchmark"
 license: MIT
 keywords:
   - franck-condon
