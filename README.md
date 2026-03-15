@@ -95,7 +95,7 @@ Uses `scipy.special.digamma` for complex digamma and a custom Numba-JIT'd trigam
 cd c
 brew install gsl gnuplot   # macOS; Linux: apt install libgsl-dev gnuplot
 make
-./c_benchmark quick         # Fast validation (N=6, ~52 seconds)
+./c_benchmark quick         # Fast validation (N=6, ~2.3 seconds)
 ./c_benchmark default       # Full benchmark (N=15)
 ./c_benchmark               # Same as 'default'
 ```
@@ -115,11 +115,11 @@ Each run produces four files in `benchmark/results/`:
 | Language | Quick (N=6) | Default (N=15) | Speedup vs MATLAB |
 |----------|-------------|----------------|---------------------|
 | MATLAB | 1844 s | — | 1x (reference) |
-| C (GSL) | 52 s | — | **36x** |
 | Python | 11 s | — | **169x** |
 | Julia | 5.2 s | — | **358x** |
+| C (GSL) | 2.3 s | — | **809x** |
 
-*Quick spec on Apple Silicon. All ports replace MATLAB's symbolic digamma bottleneck with native complex implementations: Julia uses `SpecialFunctions.jl`, Python uses `scipy.special` + Numba, C uses GSL `gsl_sf_complex_psi_e` + custom asymptotic trigamma.*
+*Quick spec on Apple Silicon. All ports replace MATLAB's symbolic digamma bottleneck with native complex implementations. C achieves top speed via factored digamma precomputation in regularized integrals (O(N) instead of O(N²) calls).*
 
 ## Language Status
 
@@ -128,7 +128,7 @@ Each run produces four files in `benchmark/results/`:
 | MATLAB | ✅ Reference | Symbolic Math Toolbox required |
 | Julia | ✅ Complete | 358x faster (quick spec) |
 | Python (Numba) | ✅ Complete | 169x faster (quick spec) |
-| C (GSL) | ✅ Complete | 36x faster (quick spec) |
+| C (GSL) | ✅ Complete | 809x faster (quick spec) |
 | Fortran | 🔲 Planned | |
 | Rust | 🔲 Planned | |
 

@@ -266,18 +266,20 @@ The Bernoulli coefficients are stored as compile-time `static const double` arra
 
 ### Performance Notes
 
-The C port runs the quick spec (N=6) in ~52 seconds on Apple Silicon — a **36x speedup** over MATLAB (1844s). This is slower than Julia (5.2s, 358x) and Python (11s, 169x) because:
+The C port runs the quick spec (N=6) in ~2.3 seconds on Apple Silicon — an **809x speedup** over MATLAB (1844s), faster than Julia (5.2s) and Python (11s).
 
-1. **No vectorization of digamma/trigamma calls**: Julia and Python process arrays of complex arguments via vectorized SIMD operations (SpecialFunctions.jl and scipy.special.digamma respectively). The C code computes them element-by-element in scalar loops.
+The key optimization is **factored digamma precomputation** in `regularized_I`. The digamma arguments factor into row-only and column-only terms:
+- `ψ(a1[i])` and `ψ(a3[i])` depend only on `epsilon1[i]` (row index)
+- `ψ(a2[j])` and `ψ(a4[j])` depend only on `epsilon2[j]` (column index)
 
-2. **Large convergence truncation N**: With λ=5, the cotunneling convergence starts at N≈100 intermediate states. Each `regularized_I` call computes 100×100 = 10,000 digamma evaluations (×4 per element = 40,000 digamma calls per `m_sumMMMMrs` invocation).
+By precomputing `ψ(a1[i]) - ψ(a3[i])` per row and `ψ(a2[j]) - ψ(a4[j])` per column, the total digamma calls drop from **4×N²** to **4×N** — a 100x reduction for N=100 (the typical convergence truncation). Similarly, `regularized_J` precomputes `trigamma(a2)` per row since it depends only on `epsilon[i]`.
 
-3. **malloc/free overhead in inner loops**: The cotunneling functions allocate scratch arrays per call. Stack allocation or pre-allocated buffers would reduce this overhead.
+Additional optimizations: trigamma uses 10 Bernoulli terms (not 20) with recurrence threshold |z|≥10 (not 20), halving both recurrence steps and series terms while maintaining full double precision.
 
-Potential optimizations (not yet implemented):
-- Batch digamma evaluation with SIMD intrinsics
-- Pre-allocate scratch buffers for cotunneling sums
-- Use OpenMP for parallel q2 loops in `sumMMMMrs`/`sumMMMMrs11`
+Performance history on the same hardware:
+- Hand-written digamma: 428s (4x vs MATLAB)
+- + GSL `gsl_sf_complex_psi_e`: 52s (36x)
+- + factored regularized_I + optimized trigamma: **2.3s (809x)**
 
 ### Numerical Precision Notes
 
