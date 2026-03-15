@@ -1,0 +1,19 @@
+# MATLAB
+*.asv
+*.mat
+*.mex*
+*.mlappinstall
+*.mltbx
+slprj/
+codegen/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Benchmark results (generated)
+benchmark/results/*.json
+
+# Editor
+*.swp
+*~
