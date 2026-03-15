@@ -1,0 +1,8 @@
+#ifndef FC_CONSTANTS_H
+#define FC_CONSTANTS_H
+
+#define KB_EV 8.617333262145e-5
+#define HBAR_EV 6.582119569e-16
+#define ELEMENTARY_CHARGE 1.60217663e-19
+
+#endif
