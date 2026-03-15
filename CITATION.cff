@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Franck-Condon Benchmark: Multi-Language I-V Simulation for Single-Molecule Junctions"
+type: software
+authors:
+  - given-names: Shanglong
+    family-names: Ning
+    email: s.ning@imperial.ac.uk
+    orcid: "https://orcid.org/0009-0003-7185-4513"
+    affiliation: "Imperial College London"
+repository-code: "https://github.com/X0x888/franck-condon-benchmark"
+license: MIT
+keywords:
+  - franck-condon
+  - molecular electronics
+  - single-molecule junction
+  - quantum transport
+  - electron-phonon coupling
+  - cotunneling
+  - benchmark
+references:
+  - type: article
+    authors:
+      - given-names: Jens
+        family-names: Koch
+      - given-names: Felix
+        family-names: von Oppen
+      - given-names: Leonid I.
+        family-names: Glazman
+    title: "Franck-Condon blockade and giant Fano factors in transport through single molecules"
+    journal: "Physical Review B"
+    volume: 74
+    pages: "205438"
+    year: 2006
+    doi: "10.1103/PhysRevB.74.205438"

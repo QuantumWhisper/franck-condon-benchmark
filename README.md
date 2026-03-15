@@ -75,6 +75,19 @@ Each run produces four files in `benchmark/results/`:
 
 Koch, J., von Oppen, F., and Glazman, L. I., *Franck-Condon blockade and giant Fano factors in transport through single molecules*, Phys. Rev. B **74**, 205438 (2006).
 
+## Citation
+
+If you use this software in your research, please cite it. Click **"Cite this repository"** on GitHub or use:
+
+```bibtex
+@software{ning2026franck-condon-benchmark,
+  author       = {Ning, Shanglong},
+  title        = {Franck-Condon Benchmark: Multi-Language I-V Simulation for Single-Molecule Junctions},
+  year         = {2026},
+  url          = {https://github.com/X0x888/franck-condon-benchmark}
+}
+```
+
 ## License
 
-Academic use. No warranty expressed or implied.
+[MIT License](LICENSE). Copyright (c) 2022-2026 Shanglong Ning.
