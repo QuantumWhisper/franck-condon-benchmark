@@ -213,3 +213,90 @@ The Python port matches Julia to **machine precision** (~8e-13 relative error) a
 Against MATLAB (excluding artifact points): max relative error = 7.7e-5, consistent with the Julia port's ~1e-5 cross-language tolerance.
 
 Performance: ~11 seconds for quick spec (N=6) on Apple Silicon, a **169x speedup** over MATLAB (1844s) and ~2x slower than Julia (5.2s).
+
+## C Implementation (c/src/)
+
+The C port uses GSL (GNU Scientific Library) for QR decomposition and complex digamma, cJSON (vendored) for JSON I/O, and gnuplot for plotting. It follows the same pipeline structure as Julia and Python.
+
+### Key Files
+
+| File | MATLAB Equivalent | Notes |
+|------|-------------------|-------|
+| `constants.h` | `KBoltzmann_ev`, `hbar_eV`, `ee_ElementaryCharge` | Header-only, same exact values |
+| `laguerre.h/.c` | `laguerreL` (built-in) | Three-term recurrence, `int` alpha |
+| `fc_matrix.h/.c` | `FCMatrixSingle.m`, `FCMatrix.m` | Static 256×256 2D array cache, log-space overflow handling |
+| `fermi_bose.h/.c` | `fermi.m`, `BoseFcn.m` | Identical formulas |
+| `digamma.h/.c` | `digammaFcn.m` | GSL `gsl_sf_complex_psi_e` for digamma, custom asymptotic series (20 Bernoulli) for trigamma |
+| `regularized.h/.c` | `regularizedI.m`, `regularizedJ.m` | Three variants: `regularized_I`, `regularized_J` (vector epsilon), `regularized_J_matrix` (matrix epsilon for n=1→1) |
+| `cotunneling.h/.c` | `sumMMr.m`, `sumMMMMrs.m`, `sumMMr11.m`, `sumMMMMrs11.m` + `m_` inners | Convergence wrappers with selective recomputation; largest module (~570 lines) |
+| `rate.h/.c` | `m_rateW.m`, `rateW.m`, `calculateAllRateW.m` | Flat array `RateStore` indexed by `[n1][n2][q1][lead_idx][q2]` |
+| `matrix.h/.c` | `generateMatrixW.m` | Same index mapping, sigma functions, peq; `1/INFINITY == 0` for tau terms |
+| `solver.h/.c` | `solve_steady_state_occupation_probabilities.m` | GSL `gsl_linalg_QR_decomp` + `gsl_linalg_QR_solve`; augmented system, clamp+renormalize |
+| `current.h/.c` | `current_from_rate_equations.m` | Same sign conventions: 0→1 R−L, 1→0 L−R, cot RL−LR |
+| `simulate.h/.c` | Main simulation loop | FC cache on heap, rate store per bias point, `-sign(Vsd)` correction |
+| `json_io.h/.c` | JSON I/O | cJSON-based; parses `tau:"Inf"` → `INFINITY`; loads MATLAB Vsd for bit-for-bit matching |
+| `plotting.h/.c` | Plot generation | gnuplot via `popen()`; PDF + PNG; graceful fallback if gnuplot unavailable |
+| `main.c` | `run_benchmark.m` | `clock_gettime(CLOCK_MONOTONIC)` timing; 3 runs + median; validation excludes MATLAB solver artifacts |
+
+### Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| GSL `gsl_sf_complex_psi_e` for digamma | Native complex support in GSL 2.x; ~8x faster than hand-written asymptotic series |
+| Custom trigamma via 20-term Bernoulli asymptotic series | GSL has no complex trigamma; algorithm matches Julia/Python exactly |
+| Static 256×256 FC cache (`FCCache` struct) | Avoids hash table overhead; max N=256 covers all practical cases; O(1) lookup |
+| Flat-array `RateStore` with macro accessor | Replaces Dict/HashMap; single `malloc` per bias point; cache-friendly access pattern |
+| GSL QR decomposition (not LU) | Matches Julia/Python augmented system approach; numerically stable for ill-conditioned W |
+| cJSON (vendored, MIT) | Single .c/.h file; no build dependency; sufficient for benchmark JSON I/O |
+| gnuplot via `popen()` | No compiled plotting dependency; publication-quality LaTeX labels; PDF+PNG |
+| `clock_gettime(CLOCK_MONOTONIC)` | Portable high-resolution timer; works on macOS and Linux |
+
+### Complex Digamma/Trigamma Strategy
+
+C does not have a native complex polygamma function. The implementation uses a hybrid approach:
+
+1. **Digamma ψ(z)**: GSL's `gsl_sf_complex_psi_e(x, y, &re, &im)` — highly optimized C code, handles all complex arguments. Falls back to the asymptotic series if GSL returns an error.
+
+2. **Trigamma ψ'(z)**: Custom implementation using the same algorithm as the Julia and Python ports:
+   - Reflection formula for Re(z) ≤ 0: `ψ'(z) = (π/sin(πz))² − ψ'(1−z)`
+   - Recurrence shift until |z| ≥ 20: `ψ'(z) = ψ'(z+1) + 1/z²`
+   - Asymptotic expansion with 20 even Bernoulli numbers B₂, B₄, ..., B₄₀
+
+The Bernoulli coefficients are stored as compile-time `static const double` array, computed as exact rational fractions (e.g., `1.0/6.0`, `-691.0/2730.0`).
+
+### Performance Notes
+
+The C port runs the quick spec (N=6) in ~52 seconds on Apple Silicon — a **36x speedup** over MATLAB (1844s). This is slower than Julia (5.2s, 358x) and Python (11s, 169x) because:
+
+1. **No vectorization of digamma/trigamma calls**: Julia and Python process arrays of complex arguments via vectorized SIMD operations (SpecialFunctions.jl and scipy.special.digamma respectively). The C code computes them element-by-element in scalar loops.
+
+2. **Large convergence truncation N**: With λ=5, the cotunneling convergence starts at N≈100 intermediate states. Each `regularized_I` call computes 100×100 = 10,000 digamma evaluations (×4 per element = 40,000 digamma calls per `m_sumMMMMrs` invocation).
+
+3. **malloc/free overhead in inner loops**: The cotunneling functions allocate scratch arrays per call. Stack allocation or pre-allocated buffers would reduce this overhead.
+
+Potential optimizations (not yet implemented):
+- Batch digamma evaluation with SIMD intrinsics
+- Pre-allocate scratch buffers for cotunneling sums
+- Use OpenMP for parallel q2 loops in `sumMMMMrs`/`sumMMMMrs11`
+
+### Numerical Precision Notes
+
+The C port matches MATLAB to **7.65e-5 max relative error** at 199 of 201 bias points (quick spec). The 2 outlier points (Vsd ≈ 0.219, 0.585) are the known MATLAB `lsqlin` interior-point solver artifacts where MATLAB produces non-physical near-zero currents.
+
+Against Python (excluding artifact points): the C and Python ports agree to ~machine precision, confirming that the C implementation is a faithful translation.
+
+The error budget is identical to the Julia and Python ports:
+- Sequential tunneling (FC²×fermi): matches to ~1e-14 (trivial computation)
+- Cotunneling (digamma cancellation + ill-conditioned W): ~1e-5 due to ULP amplification
+- MATLAB solver artifacts at Vsd ≈ 0.219, 0.585: excluded from validation
+
+### Lessons from the C Port
+
+- **GSL complex digamma exists**: Despite common belief, GSL 2.x provides `gsl_sf_complex_psi_e` for complex digamma. Using it instead of a hand-written asymptotic series gives an 8x speedup.
+- **GSL has no complex trigamma**: You must implement this yourself. The 20-term Bernoulli asymptotic series with recurrence shift (|z| ≥ 20) and reflection formula works well. The algorithm is identical across Julia, Python, and C ports.
+- **Static arrays beat hash tables for FC cache**: With max N=256, a 256×256 `double` array (512 KB) is faster than any hash table and has zero collision overhead.
+- **Flat rate store with macro indexing**: A single `malloc(2*2*N*2*N * sizeof(double))` with a 5D index macro is simpler and faster than nested arrays or hash maps.
+- **`1.0/INFINITY == 0.0`**: IEEE 754 guarantees this, so `tau=Inf` (unequilibrated phonons) works without special-casing the `1/tau` terms in the W matrix.
+- **cJSON is sufficient**: A 3000-line vendored library handles all the JSON I/O needs. No need for heavier dependencies like jansson or json-c.
+- **gnuplot via popen() is surprisingly capable**: LaTeX-quality labels, PDF vector output, and 300 dpi PNG — all from a simple script piped to `gnuplot`.
+- **convergence wrappers dominate runtime**: The `sumMMr`/`sumMMMMrs` convergence loops account for >95% of wall time. Any performance optimization should target the inner `regularized_I`/`regularized_J` calls.

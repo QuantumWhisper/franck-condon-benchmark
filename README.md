@@ -37,9 +37,17 @@ The simulation computes I-V curves by solving quantum master equations that incl
 │   ├── run_benchmark.jl
 │   ├── Project.toml
 │   └── Manifest.toml
+├── python/          # Python+Numba implementation ✅
+│   ├── src/         # Core simulation modules
+│   ├── run_benchmark.py
+│   └── requirements.txt
+├── c/               # C+GSL implementation ✅
+│   ├── src/         # Core simulation modules (17 .h/.c files)
+│   ├── main.c       # Benchmark runner
+│   ├── Makefile     # Build for macOS + Linux
+│   ├── cJSON.h/.c   # Vendored JSON library
+│   └── c_benchmark  # Compiled binary
 ├── fortran/         # Fortran implementation (planned)
-├── python/          # Python+Numba implementation (planned)
-├── c/               # C+GSL implementation (planned)
 ├── rust/            # Rust implementation (planned)
 ├── benchmark/
 │   ├── spec/        # Benchmark parameters (quick + default)
@@ -81,6 +89,19 @@ python run_benchmark.py             # Same as 'default'
 
 Uses `scipy.special.digamma` for complex digamma and a custom Numba-JIT'd trigamma via asymptotic series. No warm-up needed (not JIT at the simulation level).
 
+## Quick Start (C)
+
+```bash
+cd c
+brew install gsl gnuplot   # macOS; Linux: apt install libgsl-dev gnuplot
+make
+./c_benchmark quick         # Fast validation (N=6, ~52 seconds)
+./c_benchmark default       # Full benchmark (N=15)
+./c_benchmark               # Same as 'default'
+```
+
+Requires GSL (GNU Scientific Library) for QR decomposition and complex digamma. Uses cJSON (vendored) for JSON I/O and gnuplot for PDF/PNG plots. No warm-up needed (compiled, not JIT).
+
 ## Outputs
 
 Each run produces four files in `benchmark/results/`:
@@ -94,10 +115,11 @@ Each run produces four files in `benchmark/results/`:
 | Language | Quick (N=6) | Default (N=15) | Speedup vs MATLAB |
 |----------|-------------|----------------|---------------------|
 | MATLAB | 1844 s | — | 1x (reference) |
-| Julia | 5.2 s | — | **358x** |
+| C (GSL) | 52 s | — | **36x** |
 | Python | 11 s | — | **169x** |
+| Julia | 5.2 s | — | **358x** |
 
-*Quick spec on Apple Silicon. Julia uses `SpecialFunctions.jl`, Python uses `scipy.special` + Numba for native complex digamma/trigamma, replacing MATLAB's symbolic math bottleneck.*
+*Quick spec on Apple Silicon. All ports replace MATLAB's symbolic digamma bottleneck with native complex implementations: Julia uses `SpecialFunctions.jl`, Python uses `scipy.special` + Numba, C uses GSL `gsl_sf_complex_psi_e` + custom asymptotic trigamma.*
 
 ## Language Status
 
@@ -105,9 +127,9 @@ Each run produces four files in `benchmark/results/`:
 |----------|--------|-------|
 | MATLAB | ✅ Reference | Symbolic Math Toolbox required |
 | Julia | ✅ Complete | 358x faster (quick spec) |
-| Fortran | 🔲 Planned | |
 | Python (Numba) | ✅ Complete | 169x faster (quick spec) |
-| C (GSL) | 🔲 Planned | |
+| C (GSL) | ✅ Complete | 36x faster (quick spec) |
+| Fortran | 🔲 Planned | |
 | Rust | 🔲 Planned | |
 
 ## Reference
