@@ -160,3 +160,56 @@ The Julia port matches MATLAB to ~5 significant digits across all 201 bias point
 - **Sign conventions**: Pay careful attention to the sign in the current computation. For n=0→1: `diffW = w_R - w_L`. For n=1→0: `diffW = w_L - w_R` (opposite!). For cotunneling: `diffW = w_RL - w_LR`.
 
 The MATLAB source in `matlab/src/` is the ground truth for numerical behavior. When in doubt about a formula or sign convention, read the MATLAB code and the Koch et al. paper.
+
+## Python Implementation (python/src/)
+
+The Python port follows the Julia port structure (which is itself a 1:1 MATLAB translation). Uses Numba JIT for hot inner loops and scipy.special for complex digamma.
+
+### Key Files
+
+| File | MATLAB Equivalent | Notes |
+|------|-------------------|-------|
+| `__init__.py` | Module definition | Exports `simulate_iv`, `ELEMENTARY_CHARGE` |
+| `constants.py` | `KBoltzmann_ev`, `hbar_eV`, `ee_ElementaryCharge` | Same exact values |
+| `laguerre.py` | `laguerreL` (built-in) | Three-term recurrence, `@numba.njit` |
+| `fc_matrix.py` | `FCMatrixSingle.m`, `FCMatrix.m` | `@numba.njit` single element + dict cache |
+| `fermi_bose.py` | `fermi.m`, `BoseFcn.m` | Identical formulas, numpy vectorized |
+| `regularized.py` | `regularizedI.m`, `regularizedJ.m`, `digammaFcn.m` | `scipy.special.digamma` + Numba trigamma (asymptotic series) |
+| `cotunneling.py` | `sumMMr.m`, `sumMMMMrs.m`, etc. + `m_` inner functions | Convergence wrappers match MATLAB criteria exactly |
+| `rate.py` | `m_rateW.m`, `rateW.m`, `calculateAllRateW.m` | Dict-based rate store, same as Julia |
+| `matrix.py` | `generateMatrixW.m` | Same index mapping, sigma functions, peq |
+| `solver.py` | `solve_steady_state_occupation_probabilities.m` | Augmented system via `numpy.linalg.lstsq` |
+| `current.py` | `current_from_rate_equations.m` | Same sign conventions for I_seq0, I_seq1, I_cot |
+| `plotting.py` | `plot_IV` in `run_benchmark.m` | matplotlib + LaTeX, 12×9 cm, 300 dpi |
+| `simulate.py` | Main simulation loop | Matches Julia `simulate_iv` exactly |
+| `run_benchmark.py` | `run_benchmark.m` | 3 timed runs + median, validate vs MATLAB |
+
+### Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| `scipy.special.digamma` for complex digamma | Vectorized C code, handles complex natively; replaces MATLAB symbolic bottleneck |
+| Custom `@numba.njit` trigamma | Asymptotic series with 20 Bernoulli numbers; `scipy.special.polygamma` may not support complex args in all versions |
+| `@numba.njit` for laguerre and FC matrix | Hot inner functions called O(N²) times; pure math suitable for JIT |
+| numpy vectorization for cotunneling sums | Matrix operations on small arrays; overhead of Numba JIT not worth it here |
+| Dict-based FC matrix and rate store | Same pattern as Julia port; simple, correct, negligible overhead |
+| `numpy.linalg.lstsq` for steady-state | Augmented system approach; clamp negatives, renormalize |
+
+### Numba + scipy Tension
+
+The digamma/trigamma functions (called millions of times in cotunneling sums) live inside numpy-vectorized operations, not tight Python loops. The strategy is:
+
+1. **Digamma**: `scipy.special.digamma` — vectorized C code operating on numpy arrays. Fast enough that Numba JIT offers no benefit.
+2. **Trigamma**: Custom `@numba.njit` implementation using the Bernoulli asymptotic series. Called element-wise via a Numba-JIT'd loop for maximum throughput.
+3. **FC matrix, Laguerre**: `@numba.njit` for the scalar computation (called many times with caching).
+4. **Everything else**: numpy vectorization. The Python loop overhead in the convergence wrappers (~3 iterations) is negligible.
+
+An alternative approach using JAX (`jax.scipy.special.digamma` with end-to-end JIT) could potentially match Julia's speed but would require restructuring the entire pipeline for functional/array programming.
+
+### Numerical Precision Notes
+
+The Python port matches Julia to **machine precision** (~8e-13 relative error) at 199 of 201 bias points. The 2 outlier points (Vsd ≈ 0.219, 0.585) are the known MATLAB solver artifacts.
+
+Against MATLAB (excluding artifact points): max relative error = 7.7e-5, consistent with the Julia port's ~1e-5 cross-language tolerance.
+
+Performance: ~11 seconds for quick spec (N=6) on Apple Silicon, a **169x speedup** over MATLAB (1844s) and ~2x slower than Julia (5.2s).

@@ -69,6 +69,18 @@ julia run_benchmark.jl              # Same as 'default'
 
 First run will install dependencies automatically via `Project.toml`. Subsequent runs use the cached environment. The benchmark includes a JIT warm-up pass before timing.
 
+## Quick Start (Python)
+
+```bash
+cd python
+pip install -r requirements.txt
+python run_benchmark.py quick       # Fast validation (N=6, ~11 seconds)
+python run_benchmark.py default     # Full benchmark (N=15)
+python run_benchmark.py             # Same as 'default'
+```
+
+Uses `scipy.special.digamma` for complex digamma and a custom Numba-JIT'd trigamma via asymptotic series. No warm-up needed (not JIT at the simulation level).
+
 ## Outputs
 
 Each run produces four files in `benchmark/results/`:
@@ -83,8 +95,9 @@ Each run produces four files in `benchmark/results/`:
 |----------|-------------|----------------|---------------------|
 | MATLAB | 1844 s | — | 1x (reference) |
 | Julia | 5.2 s | — | **358x** |
+| Python | 11 s | — | **169x** |
 
-*Quick spec on Apple Silicon. Julia uses `SpecialFunctions.jl` for native complex digamma/trigamma, replacing MATLAB's symbolic math bottleneck.*
+*Quick spec on Apple Silicon. Julia uses `SpecialFunctions.jl`, Python uses `scipy.special` + Numba for native complex digamma/trigamma, replacing MATLAB's symbolic math bottleneck.*
 
 ## Language Status
 
@@ -93,7 +106,7 @@ Each run produces four files in `benchmark/results/`:
 | MATLAB | ✅ Reference | Symbolic Math Toolbox required |
 | Julia | ✅ Complete | 358x faster (quick spec) |
 | Fortran | 🔲 Planned | |
-| Python (Numba/JAX) | 🔲 Planned | |
+| Python (Numba) | ✅ Complete | 169x faster (quick spec) |
 | C (GSL) | 🔲 Planned | |
 | Rust | 🔲 Planned | |
 
