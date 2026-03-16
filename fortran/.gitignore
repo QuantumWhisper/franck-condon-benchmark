@@ -1,0 +1,5 @@
+*.o
+*.mod
+mod/
+fortran_benchmark
+_fc_plot.gp
