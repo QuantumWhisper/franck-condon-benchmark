@@ -4,7 +4,7 @@
 #        ./fortran_benchmark default
 
 FC      := gfortran
-FFLAGS  := -O2 -std=f2008 -fall-intrinsics
+FFLAGS  := -O3 -march=native -flto -funroll-loops -std=f2008 -fall-intrinsics
 LDFLAGS := -llapack -lblas
 
 # macOS Accelerate framework (fallback if LAPACK not found separately)

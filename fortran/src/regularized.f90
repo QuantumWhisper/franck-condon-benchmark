@@ -14,7 +14,7 @@ contains
         real(8), intent(out) :: out(n_eps1, n_eps2)
         real(8) :: beta, bose_val, coeff, denom, val
         complex(8) :: a1, a3, a2, a4
-        complex(8), allocatable :: row_diff(:), col_diff(:)
+        complex(8) :: row_diff(n_eps1), col_diff(n_eps2)
         integer :: i, j
 
         if (n_eps1 <= 0 .or. n_eps2 <= 0) return
@@ -22,8 +22,6 @@ contains
         beta = 1.0d0 / (KB_EV * T)
         bose_val = bose_fcn(E2 - E1, T)
         coeff = beta / (2.0d0 * PI)
-
-        allocate(row_diff(n_eps1), col_diff(n_eps2))
 
         ! Precompute row-only digamma differences
         do i = 1, n_eps1
@@ -51,8 +49,6 @@ contains
                 end if
             end do
         end do
-
-        deallocate(row_diff, col_diff)
     end subroutine regularized_I
 
     ! Regularized J integral (vector E2)
@@ -62,8 +58,8 @@ contains
         real(8), intent(in) :: E2(n_E2), epsilon(n_eps)
         real(8), intent(out) :: out(n_eps, n_E2)
         real(8) :: beta, coeff, val
-        real(8), allocatable :: bose_vals(:)
-        complex(8), allocatable :: trig_a2(:)
+        real(8) :: bose_vals(n_E2)
+        complex(8) :: trig_a2(n_eps)
         complex(8) :: a1, a2
         integer :: i, j
 
@@ -71,8 +67,6 @@ contains
 
         beta = 1.0d0 / (KB_EV * T)
         coeff = beta / (2.0d0 * PI)
-
-        allocate(bose_vals(n_E2), trig_a2(n_eps))
 
         ! Precompute Bose factors
         do j = 1, n_E2
@@ -97,8 +91,6 @@ contains
                 end if
             end do
         end do
-
-        deallocate(bose_vals, trig_a2)
     end subroutine regularized_J
 
     ! Regularized J integral (matrix epsilon) for n=1->1 cotunneling
@@ -109,7 +101,7 @@ contains
         real(8), intent(in) :: epsilon_matrix(eps_rows, eps_cols)
         real(8), intent(out) :: out(eps_cols, n_E2)
         real(8) :: beta, coeff, eps, val
-        real(8), allocatable :: bose_vals(:)
+        real(8) :: bose_vals(n_E2)
         complex(8) :: a1, a2
         integer :: i, j
 
@@ -118,7 +110,6 @@ contains
         beta = 1.0d0 / (KB_EV * T)
         coeff = beta / (2.0d0 * PI)
 
-        allocate(bose_vals(n_E2))
         do j = 1, n_E2
             bose_vals(j) = bose_fcn(E2(j) - E1, T)
         end do
@@ -140,8 +131,6 @@ contains
                 end if
             end do
         end do
-
-        deallocate(bose_vals)
     end subroutine regularized_J_matrix
 
 end module fc_regularized

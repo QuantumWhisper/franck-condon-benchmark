@@ -444,13 +444,19 @@ Fortran has native `complex(kind=8)` support with intrinsic `log`, `sin`, `cos`,
 
 ### Performance Notes
 
-The Fortran port runs the quick spec (N=6) in ~2.1 seconds on Apple Silicon — an **878x speedup** over MATLAB (1844s), faster than C+GSL (2.3s) and comparable to Rust (1.5s).
+The Fortran port runs the quick spec (N=6) in ~1.6 seconds on Apple Silicon — a **1153x speedup** over MATLAB (1844s), within 5% of Rust (1.5s).
 
-The key optimizations are inherited from the C and Rust ports:
+The key optimizations:
 1. **Factored digamma precomputation** in `regularized_I`: 4×N calls instead of 4×N²
 2. **10-term Bernoulli series** with pre-computed coefficients (from Rust)
 3. **norm_sqr threshold**: avoids sqrt per recurrence iteration
 4. **LAPACK on Accelerate**: Apple's optimized BLAS/LAPACK via the Accelerate framework
+5. **Stack-allocated temporaries**: automatic arrays instead of heap allocation in hot loops
+6. **Compiler flags**: `-O3 -march=native -flto -funroll-loops` for LTO + native SIMD
+
+Performance history on the same hardware:
+- Initial port (-O2): 2.1s (878x vs MATLAB)
+- Optimized (-O3 -march=native -flto): **1.6s (1153x vs MATLAB)**
 
 ### Numerical Precision Notes
 

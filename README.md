@@ -122,7 +122,7 @@ Pure Rust implementation with no C/FFI dependencies. Uses `num-complex` for comp
 ```bash
 cd fortran
 make
-./fortran_benchmark quick     # Fast validation (N=6, ~2.1 seconds)
+./fortran_benchmark quick     # Fast validation (N=6, ~1.6 seconds)
 ./fortran_benchmark default   # Full benchmark (N=15)
 ./fortran_benchmark           # Same as 'default'
 ```
@@ -145,10 +145,10 @@ Each run produces four files in `benchmark/results/`:
 | Python | 11 s | — | **169x** |
 | Julia | 5.2 s | — | **358x** |
 | C (GSL) | 2.3 s | — | **809x** |
-| Fortran | 2.1 s | — | **878x** |
+| Fortran | 1.6 s | — | **1153x** |
 | Rust | 1.5 s | — | **1230x** |
 
-*Quick spec on Apple Silicon. All ports replace MATLAB's symbolic digamma bottleneck with native complex implementations. Rust achieves top speed via optimized pure Rust digamma (10-term Bernoulli, pre-computed coefficients, multiply-instead-of-divide), factored precomputation in regularized integrals (O(N) instead of O(N²) calls), and aggressive #[inline] + LTO. Fortran uses the same Rust-derived digamma algorithm and matches C performance.*
+*Quick spec on Apple Silicon. All ports replace MATLAB's symbolic digamma bottleneck with native complex implementations. Rust achieves top speed via optimized pure Rust digamma (10-term Bernoulli, pre-computed coefficients, multiply-instead-of-divide), factored precomputation in regularized integrals (O(N) instead of O(N²) calls), and aggressive #[inline] + LTO. Fortran uses the same Rust-derived digamma algorithm with -O3 -march=native -flto, within 5% of Rust.*
 
 ## Language Status
 
@@ -159,7 +159,7 @@ Each run produces four files in `benchmark/results/`:
 | Python (Numba) | ✅ Complete | 169x faster (quick spec) |
 | C (GSL) | ✅ Complete | 809x faster (quick spec) |
 | Rust | ✅ Complete | 1230x faster (quick spec) |
-| Fortran | ✅ Complete | 878x faster (quick spec) |
+| Fortran | ✅ Complete | 1153x faster (quick spec) |
 
 ## Reference
 

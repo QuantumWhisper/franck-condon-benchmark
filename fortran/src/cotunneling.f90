@@ -40,7 +40,7 @@ contains
         real(8), intent(in) :: lambda, muL, muR, vmode, epsilond, T
         type(fc_cache_t), intent(inout) :: fc
         real(8), intent(out) :: out_arr(nq2)
-        real(8), allocatable :: MM_sq(:,:), Jr(:,:), E2_vec(:), eps_vec(:)
+        real(8) :: MM_sq(NN, nq2), Jr(NN, nq2), E2_vec(nq2), eps_vec(NN)
         real(8) :: fc_q1r, fc_q2r, prod, sum_val, term
         integer :: r, j
 
@@ -48,8 +48,6 @@ contains
             out_arr = 0.0d0
             return
         end if
-
-        allocate(MM_sq(NN, nq2), Jr(NN, nq2), E2_vec(nq2), eps_vec(NN))
 
         ! Precompute energy arrays
         do j = 1, nq2
@@ -81,8 +79,6 @@ contains
             end do
             out_arr(j) = sanitize(sum_val)
         end do
-
-        deallocate(MM_sq, Jr, E2_vec, eps_vec)
     end subroutine m_sumMMr
 
     ! ================================================================
@@ -95,7 +91,7 @@ contains
         real(8), intent(in) :: lambda, muL, muR, vmode, epsilond, T
         type(fc_cache_t), intent(inout) :: fc
         real(8), intent(out) :: out_arr(nq2)
-        real(8), allocatable :: MM_sq(:,:), Jr(:,:), E2_vec(:), eps_matrix(:,:)
+        real(8) :: MM_sq(NN, nq2), Jr(NN, nq2), E2_vec(nq2), eps_matrix(nq2, NN)
         real(8) :: fc_q1r, fc_q2r, prod, sum_val, term
         integer :: r, j
 
@@ -103,8 +99,6 @@ contains
             out_arr = 0.0d0
             return
         end if
-
-        allocate(MM_sq(NN, nq2), Jr(NN, nq2), E2_vec(nq2), eps_matrix(nq2, NN))
 
         ! Precompute E2 vector
         do j = 1, nq2
@@ -118,7 +112,6 @@ contains
                 fc_q2r = fc_cache_get(fc, q2_vec(j), r-1)
                 prod = fc_q2r * fc_q1r
                 MM_sq(r, j) = prod * prod
-                ! eps_matrix(j, r) corresponds to C: eps_matrix[j * N + r]
                 eps_matrix(j, r) = epsilond + dble(q2_vec(j) - (r-1)) * vmode
             end do
         end do
@@ -135,8 +128,6 @@ contains
             end do
             out_arr(j) = sanitize(sum_val)
         end do
-
-        deallocate(MM_sq, Jr, E2_vec, eps_matrix)
     end subroutine m_sumMMr11
 
     ! ================================================================
@@ -148,14 +139,12 @@ contains
         real(8), intent(in) :: lambda, muL, muR, vmode, epsilond, T
         type(fc_cache_t), intent(inout) :: fc
         real(8) :: total
-        real(8), allocatable :: Irs(:,:), eps1(:), eps2(:)
+        real(8) :: Irs(NN, NN), eps1(NN), eps2(NN)
         real(8) :: E2, fc_q2r, fc_q1r, fc_q2s, fc_q1s, mmmm, term
         integer :: r, s
 
         total = 0.0d0
         if (NN <= 0) return
-
-        allocate(Irs(NN, NN), eps1(NN), eps2(NN))
 
         do r = 1, NN
             eps1(r) = epsilond - dble(q1 - (r-1)) * vmode
@@ -179,7 +168,6 @@ contains
         end do
 
         total = sanitize(total)
-        deallocate(Irs, eps1, eps2)
     end function m_sumMMMMrs
 
     ! ================================================================
@@ -191,14 +179,12 @@ contains
         real(8), intent(in) :: lambda, muL, muR, vmode, epsilond, T
         type(fc_cache_t), intent(inout) :: fc
         real(8) :: total
-        real(8), allocatable :: Irs(:,:), eps1(:), eps2(:)
+        real(8) :: Irs(NN, NN), eps1(NN), eps2(NN)
         real(8) :: E2, fc_q2r, fc_q1r, fc_q2s, fc_q1s, mmmm, term
         integer :: r, s
 
         total = 0.0d0
         if (NN <= 0) return
-
-        allocate(Irs(NN, NN), eps1(NN), eps2(NN))
 
         do r = 1, NN
             eps1(r) = epsilond + dble(q2 - (r-1)) * vmode
@@ -222,7 +208,6 @@ contains
         end do
 
         total = sanitize(total)
-        deallocate(Irs, eps1, eps2)
     end function m_sumMMMMrs11
 
     ! ================================================================
@@ -237,14 +222,13 @@ contains
         real(8), intent(out) :: out_arr(nq2)
         integer :: tempN, step, j, k, nloc
         real(8), parameter :: epsilon_conv = 1.0d-14
-        real(8), allocatable :: temp_tol(:), temp_tol2(:), relative_diff(:)
-        integer, allocatable :: loc_indices(:), q2_subset(:)
-        real(8), allocatable :: partial(:)
+        real(8) :: temp_tol(nq2), temp_tol2(nq2), relative_diff(nq2)
+        integer :: loc_indices(nq2), q2_subset(nq2)
+        real(8) :: partial(nq2)
 
         if (nq2 <= 0) return
 
         tempN = nint(lambda**2.2d0 * 3.0d0)
-        allocate(temp_tol(nq2), temp_tol2(nq2), relative_diff(nq2), loc_indices(nq2))
 
         call m_sumMMr(tempN, q1, q2_vec, nq2, lambda, muL, muR, vmode, &
                       epsilond, T, fc, temp_tol)
@@ -257,7 +241,6 @@ contains
         end do
 
         do while (.true.)
-            ! Check if any exceed threshold
             nloc = 0
             do j = 1, nq2
                 if (relative_diff(j) > epsilon_conv) then
@@ -274,18 +257,16 @@ contains
 
             temp_tol = temp_tol2
 
-            allocate(q2_subset(nloc), partial(nloc))
             do k = 1, nloc
                 q2_subset(k) = q2_vec(loc_indices(k))
             end do
 
-            call m_sumMMr(tempN, q1, q2_subset, nloc, lambda, muL, muR, &
-                          vmode, epsilond, T, fc, partial)
+            call m_sumMMr(tempN, q1, q2_subset(1:nloc), nloc, lambda, muL, muR, &
+                          vmode, epsilond, T, fc, partial(1:nloc))
 
             do k = 1, nloc
                 temp_tol2(loc_indices(k)) = partial(k)
             end do
-            deallocate(q2_subset, partial)
 
             do j = 1, nq2
                 relative_diff(j) = rel_diff_log10(temp_tol(j), temp_tol2(j))
@@ -295,8 +276,6 @@ contains
         do j = 1, nq2
             out_arr(j) = sanitize(temp_tol2(j))
         end do
-
-        deallocate(temp_tol, temp_tol2, relative_diff, loc_indices)
     end subroutine sumMMr_conv
 
     ! ================================================================
@@ -311,14 +290,13 @@ contains
         real(8), intent(out) :: out_arr(nq2)
         integer :: tempN, step, j, k, nloc
         real(8), parameter :: epsilon_conv = 1.0d-14
-        real(8), allocatable :: temp_tol(:), temp_tol2(:), relative_diff(:)
-        integer, allocatable :: loc_indices(:), q2_subset(:)
-        real(8), allocatable :: partial(:)
+        real(8) :: temp_tol(nq2), temp_tol2(nq2), relative_diff(nq2)
+        integer :: loc_indices(nq2), q2_subset(nq2)
+        real(8) :: partial(nq2)
 
         if (nq2 <= 0) return
 
         tempN = nint(lambda**2.2d0 * 3.0d0)
-        allocate(temp_tol(nq2), temp_tol2(nq2), relative_diff(nq2), loc_indices(nq2))
 
         call m_sumMMr11(tempN, q1, q2_vec, nq2, lambda, muL, muR, vmode, &
                         epsilond, T, fc, temp_tol)
@@ -347,18 +325,16 @@ contains
 
             temp_tol = temp_tol2
 
-            allocate(q2_subset(nloc), partial(nloc))
             do k = 1, nloc
                 q2_subset(k) = q2_vec(loc_indices(k))
             end do
 
-            call m_sumMMr11(tempN, q1, q2_subset, nloc, lambda, muL, muR, &
-                            vmode, epsilond, T, fc, partial)
+            call m_sumMMr11(tempN, q1, q2_subset(1:nloc), nloc, lambda, muL, muR, &
+                            vmode, epsilond, T, fc, partial(1:nloc))
 
             do k = 1, nloc
                 temp_tol2(loc_indices(k)) = partial(k)
             end do
-            deallocate(q2_subset, partial)
 
             do j = 1, nq2
                 relative_diff(j) = rel_diff_log10(temp_tol(j), temp_tol2(j))
@@ -368,8 +344,6 @@ contains
         do j = 1, nq2
             out_arr(j) = sanitize(temp_tol2(j))
         end do
-
-        deallocate(temp_tol, temp_tol2, relative_diff, loc_indices)
     end subroutine sumMMr11_conv
 
     ! ================================================================
@@ -398,7 +372,7 @@ contains
 
             rd = rel_diff_log(temp_tol_s, temp_tol2_s)
 
-            do while (rd == rd .and. rd > epsilon_conv)  ! isfinite check via NaN test
+            do while (rd == rd .and. rd > epsilon_conv)
                 temp_tol_s = temp_tol2_s
                 step = nint(dble(tempN) * 0.5d0)
                 if (step < 20) step = 20
