@@ -22,6 +22,7 @@ impl FCCache {
         q1 * FC_MAX_N + q2
     }
 
+    #[inline]
     pub fn get(&mut self, q1: i32, q2: i32) -> f64 {
         if q1 < 0 || q2 < 0 || q1 as usize >= FC_MAX_N || q2 as usize >= FC_MAX_N {
             return 0.0;

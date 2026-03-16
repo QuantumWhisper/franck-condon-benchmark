@@ -107,7 +107,7 @@ Requires GSL (GNU Scientific Library) for QR decomposition and complex digamma. 
 ```bash
 cd rust
 cargo build --release
-./target/release/rust_benchmark quick     # Fast validation (N=6, ~7 seconds)
+./target/release/rust_benchmark quick     # Fast validation (N=6, ~1.5 seconds)
 ./target/release/rust_benchmark default   # Full benchmark (N=15)
 ./target/release/rust_benchmark           # Same as 'default'
 ```
@@ -128,11 +128,11 @@ Each run produces four files in `benchmark/results/`:
 |----------|-------------|----------------|---------------------|
 | MATLAB | 1844 s | — | 1x (reference) |
 | Python | 11 s | — | **169x** |
-| Rust | 7.2 s | — | **254x** |
 | Julia | 5.2 s | — | **358x** |
 | C (GSL) | 2.3 s | — | **809x** |
+| Rust | 1.5 s | — | **1230x** |
 
-*Quick spec on Apple Silicon. All ports replace MATLAB's symbolic digamma bottleneck with native complex implementations. C achieves top speed via GSL's optimized digamma + factored precomputation in regularized integrals (O(N) instead of O(N²) calls). Rust uses the same factored precomputation but with a pure Rust asymptotic series digamma.*
+*Quick spec on Apple Silicon. All ports replace MATLAB's symbolic digamma bottleneck with native complex implementations. Rust achieves top speed via optimized pure Rust digamma (10-term Bernoulli, pre-computed coefficients, multiply-instead-of-divide), factored precomputation in regularized integrals (O(N) instead of O(N²) calls), and aggressive #[inline] + LTO.*
 
 ## Language Status
 
@@ -142,7 +142,7 @@ Each run produces four files in `benchmark/results/`:
 | Julia | ✅ Complete | 358x faster (quick spec) |
 | Python (Numba) | ✅ Complete | 169x faster (quick spec) |
 | C (GSL) | ✅ Complete | 809x faster (quick spec) |
-| Rust | ✅ Complete | 254x faster (quick spec) |
+| Rust | ✅ Complete | 1230x faster (quick spec) |
 | Fortran | 🔲 Planned | |
 
 ## Reference

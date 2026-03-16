@@ -29,6 +29,7 @@ impl RateStore {
         (((n1 * 2 + n2) * n + q1) * 2 + lead_idx) * n + q2
     }
 
+    #[inline]
     pub fn rate_w(&self, n1: usize, n2: usize, q1: usize, q2: usize, lead: i32) -> f64 {
         if n1 > 1 || n2 > 1 || q1 >= self.n || q2 >= self.n {
             return 0.0;
@@ -38,12 +39,13 @@ impl RateStore {
         self.data[idx]
     }
 
+    #[inline]
     pub fn rate_w_lead(&self, n1: usize, n2: usize, q1: usize, q2: usize) -> f64 {
         self.rate_w(n1, n2, q1, q2, 1) + self.rate_w(n1, n2, q1, q2, -1)
     }
 }
 
-#[inline]
+#[inline(always)]
 fn sanitize(x: f64) -> f64 {
     if x.is_finite() { x } else { 0.0 }
 }

@@ -360,16 +360,18 @@ The Bernoulli coefficients B₂ through B₄₀ are stored as `static` compile-t
 
 ### Performance Notes
 
-The Rust port runs the quick spec (N=6) in ~7.2 seconds on Apple Silicon — a **254x speedup** over MATLAB (1844s), faster than Python (11s) but slower than Julia (5.2s) and C (2.3s).
+The Rust port runs the quick spec (N=6) in ~1.5 seconds on Apple Silicon — a **1230x speedup** over MATLAB (1844s), the fastest implementation, beating C+GSL (2.3s), Julia (5.2s), and Python (11s).
 
-The performance gap vs C (3x) is primarily due to the digamma implementation:
-- C uses GSL's `gsl_sf_complex_psi_e` — hand-tuned C with Chebyshev approximation (~10ns/call)
-- Rust uses a 20-term Bernoulli asymptotic series with recurrence to |z|≥20 (~60ns/call)
+The performance was achieved through several optimizations:
+1. **Reduced asymptotic series**: 10 Bernoulli terms instead of 20 (still ~1e-20 truncation error at |z|≥10, far below machine epsilon)
+2. **Pre-computed coefficients**: `DIGAMMA_COEFF[k] = B_{2(k+1)}/(2*(k+1))` as a static array, eliminating runtime division
+3. **Multiply-instead-of-divide**: `inv_power * coeff` instead of `coeff / power`, replacing complex division with cheaper scalar-complex multiply
+4. **norm_sqr() threshold**: `z.norm_sqr() < 100.0` instead of `z.norm() < 10.0`, avoiding sqrt per iteration
+5. **Aggressive #[inline]**: All hot-path functions annotated with `#[inline]` or `#[inline(always)]`, enabling cross-module optimization with LTO
 
-With the factored precomputation optimization (4×N instead of 4×N² digamma calls), this per-call overhead is significantly mitigated. Further optimization is possible by:
-- Wrapping GSL via FFI (would match C performance)
-- Reducing recurrence threshold and series terms (trade precision for speed)
-- Using a Chebyshev or Padé approximation instead of asymptotic series
+Performance history:
+- Initial port (20-term digamma, no inlining): 7.2s (254x vs MATLAB)
+- Optimized (10-term, pre-computed, inlined): **1.5s (1230x vs MATLAB)**
 
 ### Numerical Precision Notes
 

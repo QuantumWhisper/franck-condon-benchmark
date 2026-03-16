@@ -3,7 +3,7 @@ use num_complex::Complex64;
 use crate::fc_matrix::FCCache;
 use crate::regularized::{regularized_i, regularized_j, regularized_j_matrix};
 
-#[inline]
+#[inline(always)]
 fn sanitize(x: f64) -> f64 {
     if x.is_finite() { x } else { 0.0 }
 }

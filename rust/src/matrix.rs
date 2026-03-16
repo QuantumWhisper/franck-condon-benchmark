@@ -2,6 +2,7 @@ use crate::constants::KB_EV;
 use crate::rate::RateStore;
 
 /// Equilibrium phonon occupation probability.
+#[inline]
 pub fn peq(q: i32, vmode: f64, t: f64) -> f64 {
     let beta = 1.0 / (KB_EV * t);
     (-(q as f64) * vmode * beta).exp() * (1.0 - (-vmode * beta).exp())
