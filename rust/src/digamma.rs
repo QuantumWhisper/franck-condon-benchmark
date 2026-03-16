@@ -31,11 +31,32 @@ static DIGAMMA_COEFF: [f64; 10] = [
     -174611.0 / 330.0 / 20.0,    // B_20 / 20
 ];
 
-/// Complex digamma function psi(z) via asymptotic series.
-///
-/// Optimized: 10-term Bernoulli expansion, threshold |z| >= 10,
-/// multiply-instead-of-divide pattern, norm_sqr for threshold.
-/// 10 terms at |z|>=10 gives ~1e-20 truncation error (far below machine epsilon).
+#[inline(always)]
+pub fn digamma_asymptotic5(z: Complex64) -> Complex64 {
+    let inv_z = z.inv();
+    let inv_z_sq = inv_z * inv_z;
+    let mut result = z.ln() - inv_z * 0.5;
+    let mut inv_power = inv_z_sq;
+    for k in 0..5 {
+        result -= inv_power * DIGAMMA_COEFF[k];
+        inv_power *= inv_z_sq;
+    }
+    result
+}
+
+#[inline(always)]
+pub fn trigamma_asymptotic5(z: Complex64) -> Complex64 {
+    let iz = z.inv();
+    let iz2 = iz * iz;
+    let mut result = iz + iz2 * 0.5;
+    let mut power = iz2 * iz;
+    for k in 0..5 {
+        result += power * BERNOULLI_EVEN[k];
+        power *= iz2;
+    }
+    result
+}
+
 #[inline]
 pub fn digamma_c(z: Complex64) -> Complex64 {
     let mut z_work = z;

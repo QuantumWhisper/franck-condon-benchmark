@@ -2,10 +2,10 @@ use std::f64::consts::PI;
 
 use crate::constants::HBAR_EV;
 use crate::cotunneling::{sum_mmmmrs, sum_mmmmrs11, sum_mmr, sum_mmr11};
+use crate::digamma_table::DigammaTable;
 use crate::fc_matrix::FCCache;
 use crate::fermi_bose::fermi;
 
-/// Flat-array rate store indexed by [n1][n2][q1][lead_idx][q2].
 pub struct RateStore {
     pub n: usize,
     pub data: Vec<f64>,
@@ -60,7 +60,6 @@ pub fn spin_degeneracy(n1: usize, n2: usize) -> f64 {
     }
 }
 
-/// Compute rates for all q2 given (n1, n2, q1, lead).
 pub fn m_rate_w(
     n1: usize,
     n2: usize,
@@ -75,8 +74,9 @@ pub fn m_rate_w(
     eta: f64,
     lead: i32,
     vg: f64,
-    fc: &mut FCCache,
+    fc: &FCCache,
     out: &mut [f64],
+    table: Option<&DigammaTable>,
 ) {
     let nq2 = q2_vec.len();
     let gamma_l = alpha_l * vmode;
@@ -97,7 +97,6 @@ pub fn m_rate_w(
     }
 
     if n1 == 1 && n2 == 0 {
-        // Sequential 1→0
         for i in 0..nq2 {
             let q2 = q2_vec[i];
             let fc_val = fc.get(q1, q2);
@@ -106,7 +105,6 @@ pub fn m_rate_w(
             out[i] = sanitize(val);
         }
     } else if n1 == 0 && n2 == 1 {
-        // Sequential 0→1
         for i in 0..nq2 {
             let q2 = q2_vec[i];
             let fc_val = fc.get(q1, q2);
@@ -115,16 +113,15 @@ pub fn m_rate_w(
             out[i] = sanitize(val);
         }
     } else if n1 == 0 && n2 == 0 {
-        // Cotunneling 0→0
         let mut single_sum = vec![0.0; nq2];
         let mut double_sum = vec![0.0; nq2];
 
         if lead == 1 {
-            sum_mmr(q1, q2_vec, lambda, mu_l, mu_r, vmode, epsilond, t, fc, &mut single_sum);
-            sum_mmmmrs(q1, q2_vec, lambda, mu_l, mu_r, vmode, epsilond, t, fc, &mut double_sum);
+            sum_mmr(q1, q2_vec, lambda, mu_l, mu_r, vmode, epsilond, t, fc, &mut single_sum, table);
+            sum_mmmmrs(q1, q2_vec, lambda, mu_l, mu_r, vmode, epsilond, t, fc, &mut double_sum, table);
         } else {
-            sum_mmr(q1, q2_vec, lambda, mu_r, mu_l, vmode, epsilond, t, fc, &mut single_sum);
-            sum_mmmmrs(q1, q2_vec, lambda, mu_r, mu_l, vmode, epsilond, t, fc, &mut double_sum);
+            sum_mmr(q1, q2_vec, lambda, mu_r, mu_l, vmode, epsilond, t, fc, &mut single_sum, table);
+            sum_mmmmrs(q1, q2_vec, lambda, mu_r, mu_l, vmode, epsilond, t, fc, &mut double_sum, table);
         }
 
         let prefac = s / (2.0 * PI * HBAR_EV) * gamma_l * gamma_r;
@@ -132,20 +129,15 @@ pub fn m_rate_w(
             out[i] = sanitize(prefac * (single_sum[i] + double_sum[i]));
         }
     } else {
-        // Cotunneling 1→1
         let mut single_sum = vec![0.0; nq2];
         let mut double_sum = vec![0.0; nq2];
 
         if lead == 1 {
-            sum_mmr11(q1, q2_vec, lambda, mu_l, mu_r, vmode, epsilond, t, fc, &mut single_sum);
-            sum_mmmmrs11(
-                q1, q2_vec, lambda, mu_l, mu_r, vmode, epsilond, t, fc, &mut double_sum,
-            );
+            sum_mmr11(q1, q2_vec, lambda, mu_l, mu_r, vmode, epsilond, t, fc, &mut single_sum, table);
+            sum_mmmmrs11(q1, q2_vec, lambda, mu_l, mu_r, vmode, epsilond, t, fc, &mut double_sum, table);
         } else {
-            sum_mmr11(q1, q2_vec, lambda, mu_r, mu_l, vmode, epsilond, t, fc, &mut single_sum);
-            sum_mmmmrs11(
-                q1, q2_vec, lambda, mu_r, mu_l, vmode, epsilond, t, fc, &mut double_sum,
-            );
+            sum_mmr11(q1, q2_vec, lambda, mu_r, mu_l, vmode, epsilond, t, fc, &mut single_sum, table);
+            sum_mmmmrs11(q1, q2_vec, lambda, mu_r, mu_l, vmode, epsilond, t, fc, &mut double_sum, table);
         }
 
         let prefac = s / (2.0 * PI * HBAR_EV) * gamma_l * gamma_r;
@@ -155,7 +147,6 @@ pub fn m_rate_w(
     }
 }
 
-/// Pre-compute all rates for a given lead and store them.
 pub fn calculate_all_rate_w(
     store: &mut RateStore,
     n: usize,
@@ -168,7 +159,8 @@ pub fn calculate_all_rate_w(
     eta: f64,
     lead: i32,
     vg: f64,
-    fc: &mut FCCache,
+    fc: &FCCache,
+    table: Option<&DigammaTable>,
 ) {
     let q2_vec: Vec<i32> = (0..n as i32).collect();
     let mut out_buf = vec![0.0; n];
@@ -179,7 +171,7 @@ pub fn calculate_all_rate_w(
             for q1 in 0..n {
                 m_rate_w(
                     n1, n2, q1 as i32, &q2_vec, vmode, alpha_l, alpha_r, lambda, vsd, t, eta,
-                    lead, vg, fc, &mut out_buf,
+                    lead, vg, fc, &mut out_buf, table,
                 );
                 for q2 in 0..n {
                     let idx = RateStore::rate_idx(n, n1, n2, q1, lead_idx, q2);

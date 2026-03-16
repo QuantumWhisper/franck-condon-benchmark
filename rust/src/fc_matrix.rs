@@ -1,7 +1,8 @@
 use crate::laguerre::laguerre_l;
 
-pub const FC_MAX_N: usize = 256;
+pub const FC_MAX_N: usize = 1024;
 
+#[derive(Clone)]
 pub struct FCCache {
     cache: Vec<f64>,
     valid: Vec<bool>,
@@ -23,21 +24,31 @@ impl FCCache {
     }
 
     #[inline]
-    pub fn get(&mut self, q1: i32, q2: i32) -> f64 {
+    pub fn get(&self, q1: i32, q2: i32) -> f64 {
         if q1 < 0 || q2 < 0 || q1 as usize >= FC_MAX_N || q2 as usize >= FC_MAX_N {
             return 0.0;
         }
-        let i = Self::idx(q1 as usize, q2 as usize);
-        if !self.valid[i] {
-            self.cache[i] = fc_matrix_single(q1, q2, self.lambda);
-            self.valid[i] = true;
-        }
-        self.cache[i]
+        self.cache[Self::idx(q1 as usize, q2 as usize)]
     }
 
     pub fn get_row(&mut self, q1: i32, q2_range: &[i32], out: &mut [f64]) {
         for (i, &q2) in q2_range.iter().enumerate() {
             out[i] = self.get(q1, q2);
+        }
+    }
+
+    /// Pre-populate all cache entries up to max_q (exclusive).
+    /// After this call, all get() calls for q1, q2 in [0, max_q) are O(1) lookups.
+    pub fn precompute(&mut self, max_q: usize) {
+        let limit = max_q.min(FC_MAX_N);
+        for q1 in 0..limit {
+            for q2 in 0..limit {
+                let i = Self::idx(q1, q2);
+                if !self.valid[i] {
+                    self.cache[i] = fc_matrix_single(q1 as i32, q2 as i32, self.lambda);
+                    self.valid[i] = true;
+                }
+            }
         }
     }
 }

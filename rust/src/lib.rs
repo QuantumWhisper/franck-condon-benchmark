@@ -3,6 +3,7 @@ pub mod laguerre;
 pub mod fc_matrix;
 pub mod fermi_bose;
 pub mod digamma;
+pub mod digamma_table;
 pub mod regularized;
 pub mod cotunneling;
 pub mod rate;

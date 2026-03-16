@@ -2,15 +2,30 @@ use num_complex::Complex64;
 use std::f64::consts::PI;
 
 use crate::constants::KB_EV;
-use crate::digamma::{digamma_c, trigamma_c};
+use crate::digamma::{digamma_asymptotic5, digamma_c, trigamma_asymptotic5, trigamma_c};
+use crate::digamma_table::DigammaTable;
 use crate::fermi_bose::bose_fcn;
 
-/// Regularized I integral with factored digamma precomputation.
-///
-/// Key optimization from C port: digamma arguments factor into row-only
-/// and column-only terms. Precompute per row/col → 4*N calls instead of 4*N*N.
-///
-/// Output is stored in row-major order: out[i * n_eps2 + j].
+#[inline(always)]
+fn fast_digamma_half(y: f64) -> Complex64 {
+    let z = Complex64::new(0.5, y);
+    if y * y > 900.0 {
+        digamma_asymptotic5(z)
+    } else {
+        digamma_c(z)
+    }
+}
+
+#[inline(always)]
+fn fast_trigamma_half(y: f64) -> Complex64 {
+    let z = Complex64::new(0.5, y);
+    if y * y > 900.0 {
+        trigamma_asymptotic5(z)
+    } else {
+        trigamma_c(z)
+    }
+}
+
 pub fn regularized_i(
     e1: f64,
     e2: f64,
@@ -18,6 +33,7 @@ pub fn regularized_i(
     epsilon2: &[f64],
     t: f64,
     out: &mut [f64],
+    table: Option<&DigammaTable>,
 ) {
     let n_eps1 = epsilon1.len();
     let n_eps2 = epsilon2.len();
@@ -29,27 +45,32 @@ pub fn regularized_i(
     let bose_val = bose_fcn(e2 - e1, t);
     let coeff = beta / (2.0 * PI);
 
-    // Precompute row-only digamma differences: psi(a1) - psi(a3)
     let row_diff: Vec<Complex64> = epsilon1
         .iter()
         .map(|&eps| {
-            let a1 = Complex64::new(0.5, coeff * (e2 - eps));
-            let a3 = Complex64::new(0.5, coeff * (e1 - eps));
-            digamma_c(a1) - digamma_c(a3)
+            let y1 = coeff * (e2 - eps);
+            let y3 = coeff * (e1 - eps);
+            if let Some(tbl) = table {
+                tbl.digamma(y1) - tbl.digamma(y3)
+            } else {
+                fast_digamma_half(y1) - fast_digamma_half(y3)
+            }
         })
         .collect();
 
-    // Precompute column-only digamma differences: psi(a2) - psi(a4)
     let col_diff: Vec<Complex64> = epsilon2
         .iter()
         .map(|&eps| {
-            let a2 = Complex64::new(0.5, -coeff * (e2 - eps));
-            let a4 = Complex64::new(0.5, -coeff * (e1 - eps));
-            digamma_c(a2) - digamma_c(a4)
+            let y2 = -coeff * (e2 - eps);
+            let y4 = -coeff * (e1 - eps);
+            if let Some(tbl) = table {
+                tbl.digamma(y2) - tbl.digamma(y4)
+            } else {
+                fast_digamma_half(y2) - fast_digamma_half(y4)
+            }
         })
         .collect();
 
-    // Compute matrix entries
     for i in 0..n_eps1 {
         for j in 0..n_eps2 {
             let denom = epsilon1[i] - epsilon2[j];
@@ -59,14 +80,13 @@ pub fn regularized_i(
     }
 }
 
-/// Regularized J integral (vector E2).
-/// Output is stored in row-major order: out[i * n_e2 + j].
 pub fn regularized_j(
     e1: f64,
     e2: &[f64],
     epsilon: &[f64],
     t: f64,
     out: &mut [f64],
+    table: Option<&DigammaTable>,
 ) {
     let n_e2 = e2.len();
     let n_eps = epsilon.len();
@@ -79,27 +99,32 @@ pub fn regularized_j(
 
     let bose_vals: Vec<f64> = e2.iter().map(|&e| bose_fcn(e - e1, t)).collect();
 
-    // Precompute trigamma(a2) per row
     let trig_a2: Vec<Complex64> = epsilon
         .iter()
         .map(|&eps| {
-            let a2 = Complex64::new(0.5, coeff * (e1 - eps));
-            trigamma_c(a2)
+            let y = coeff * (e1 - eps);
+            if let Some(tbl) = table {
+                tbl.trigamma(y)
+            } else {
+                fast_trigamma_half(y)
+            }
         })
         .collect();
 
     for i in 0..n_eps {
         for j in 0..n_e2 {
-            let a1 = Complex64::new(0.5, coeff * (e2[j] - epsilon[i]));
-            let val = coeff * bose_vals[j] * (trigamma_c(a1) - trig_a2[i]).im;
+            let y = coeff * (e2[j] - epsilon[i]);
+            let trig_a1 = if let Some(tbl) = table {
+                tbl.trigamma(y)
+            } else {
+                fast_trigamma_half(y)
+            };
+            let val = coeff * bose_vals[j] * (trig_a1 - trig_a2[i]).im;
             out[i * n_e2 + j] = if val.is_finite() { val } else { 0.0 };
         }
     }
 }
 
-/// Regularized J integral (matrix epsilon) for n=1→1 cotunneling.
-/// epsilon_matrix is stored in row-major: epsilon_matrix[j * eps_cols + i].
-/// Output is stored: out[i * n_e2 + j].
 pub fn regularized_j_matrix(
     e1: f64,
     e2: &[f64],
@@ -108,6 +133,7 @@ pub fn regularized_j_matrix(
     eps_cols: usize,
     t: f64,
     out: &mut [f64],
+    table: Option<&DigammaTable>,
 ) {
     let n_e2 = e2.len();
     if n_e2 == 0 || eps_rows == 0 || eps_cols == 0 {
@@ -127,10 +153,16 @@ pub fn regularized_j_matrix(
             }
 
             let eps = epsilon_matrix[j * eps_cols + i];
-            let a1 = Complex64::new(0.5, coeff * (e2[j] - eps));
-            let a2 = Complex64::new(0.5, coeff * (e1 - eps));
+            let y1 = coeff * (e2[j] - eps);
+            let y2 = coeff * (e1 - eps);
 
-            let val = coeff * bose_vals[j] * (trigamma_c(a1) - trigamma_c(a2)).im;
+            let (ta1, ta2) = if let Some(tbl) = table {
+                (tbl.trigamma(y1), tbl.trigamma(y2))
+            } else {
+                (fast_trigamma_half(y1), fast_trigamma_half(y2))
+            };
+
+            let val = coeff * bose_vals[j] * (ta1 - ta2).im;
             out[i * n_e2 + j] = if val.is_finite() { val } else { 0.0 };
         }
     }

@@ -390,7 +390,57 @@ The error budget is identical to all other ports:
 - **Rust's borrow checker catches array aliasing bugs**: The C port's `sort3(&a[0], &a[1], &a[2])` pattern doesn't compile in Rust — use `arr.sort_by()` instead.
 - **`f64::INFINITY` and IEEE 754**: `1.0 / f64::INFINITY == 0.0` works in Rust just as `1.0/INFINITY` works in C, so `tau=Inf` requires no special handling.
 - **No CSV crate needed**: Manual `write!` with `{:.6e}` format matches the C port's `fprintf(fp, "%.6e")` output exactly.
-- **Minimal dependencies**: Only 4 crates (num-complex, serde, serde_json, nalgebra) — the entire simulation is pure Rust.
+- **Minimal dependencies**: 5 crates (num-complex, serde, serde_json, nalgebra, rayon) — the entire simulation is pure Rust.
+
+### Performance Optimizations (post-benchmark)
+
+The Rust port includes optimizations beyond the initial faithful translation:
+
+1. **Rayon parallelism**: Bias points are computed in parallel via `rayon::par_iter`. The FC cache is pre-populated and shared immutably across threads (`&FCCache` instead of `&mut FCCache`). Achieves near-linear scaling with core count.
+
+2. **Specialized fast-path digamma**: `digamma_asymptotic5` and `trigamma_asymptotic5` use 5 Bernoulli terms (instead of 10) for |z|² > 900, skipping reflection and recurrence. At T=4.2K, >99% of calls hit this path.
+
+3. **Digamma lookup table infrastructure**: `DigammaTable` precomputes ψ(½+iy) on a fine grid with Catmull-Rom interpolation. Currently benefits low-temperature regimes where |y| < 10 triggers recurrence. Falls back to the original asymptotic series for |y| outside the table range.
+
+### Robustness: Parameter Validity and Edge Cases
+
+The Rust port validates inputs and handles edge cases that other ports may not:
+
+**Input validation** (enforced with `panic!` in `simulate_iv`):
+- T must be positive (T=0 not supported — Fermi function undefined)
+- vmode must be positive (vmode=0 causes divergent Bose function)
+- tau must be positive or Inf (tau=0 causes NaN in W matrix; tau<0 is unphysical)
+- alpha_L, alpha_R must be non-negative
+- lambda must be non-negative
+- Warning printed if lambda requires convergence N exceeding FC_MAX_N (1024)
+
+**Safe parameter ranges**:
+
+| Parameter | Safe Range | What Happens Outside |
+|-----------|-----------|---------------------|
+| T | > 0 (any positive) | T=0: panic. T very small: works but digamma arguments become large |
+| N | 1 to ~200 | N=0: returns zeros. N>200: works but memory/time grows as N² |
+| lambda | 0 to ~15 | lambda=0: handled explicitly. lambda>15: convergence N may exceed FC_MAX_N=1024, warning printed |
+| alpha_L, alpha_R | ≥ 0 | Both zero: all rates vanish, W singular, solver returns fallback |
+| Vsd | any real value | Sign correction applied. Vsd=0: current is zero by symmetry |
+| Vg | any real value | Shifts molecular level, no edge cases |
+| tau | > 0 or Inf | tau=0: panic. Inf: phonon relaxation terms vanish (IEEE 754) |
+| eta | 0 to 1 | No validation; values outside [0,1] are unphysical but won't crash |
+| vmode | > 0 | vmode=0: panic (bose_fcn diverges) |
+
+**Silent error masking** (known, by design):
+- `sanitize()` in cotunneling and rate computation converts NaN/Inf to 0.0. This matches the MATLAB reference behavior but masks upstream errors. In practice, this only fires at the known MATLAB solver artifact points (Vsd ≈ 0.219, 0.585).
+- The QR solver clamps negative probabilities to 0 and renormalizes. This is physically motivated (probabilities ≥ 0) but masks ill-conditioning.
+
+**Convergence safety**:
+- All four convergence wrappers (sum_mmr, sum_mmr11, sum_mmmmrs, sum_mmmmrs11) have a maximum iteration limit of 200. If convergence is not reached, a warning is printed to stderr and the best available result is used.
+- The `rel_diff_log10` and `rel_diff_log` functions handle zero denominators: both zero → converged (0.0); one zero → not converged (Inf). This prevents NaN from bypassing the convergence check.
+
+**Fermi and Bose function edge cases**:
+- `fermi(x, mu, T)` at T≤0: returns the step function limit (0 if x>mu, 1 if x<mu, 0.5 if x=mu)
+- `fermi` with very large |(x-mu)/kT|: explicitly returns 0 or 1 to avoid exp overflow
+- `bose_fcn(x, T)` at T≤0: returns 0
+- `bose_fcn` with x≈0: guards against 1/(exp(0)-1) = 1/0
 
 ## Fortran Implementation (fortran/src/)
 
