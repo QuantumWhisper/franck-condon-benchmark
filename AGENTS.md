@@ -391,3 +391,78 @@ The error budget is identical to all other ports:
 - **`f64::INFINITY` and IEEE 754**: `1.0 / f64::INFINITY == 0.0` works in Rust just as `1.0/INFINITY` works in C, so `tau=Inf` requires no special handling.
 - **No CSV crate needed**: Manual `write!` with `{:.6e}` format matches the C port's `fprintf(fp, "%.6e")` output exactly.
 - **Minimal dependencies**: Only 4 crates (num-complex, serde, serde_json, nalgebra) — the entire simulation is pure Rust.
+
+## Fortran Implementation (fortran/src/)
+
+The Fortran port follows the C port structure (which is itself a faithful MATLAB translation). Pure Fortran 2008 with LAPACK for linear algebra and custom asymptotic series for complex digamma/trigamma (ported from Rust's optimized algorithm).
+
+### Key Files
+
+| File | C Equivalent | Notes |
+|------|-------------|-------|
+| `constants.f90` | `constants.h` | Module with same exact values |
+| `laguerre.f90` | `laguerre.c` | Three-term recurrence, identical algorithm |
+| `fc_matrix.f90` | `fc_matrix.c` | 256×256 allocatable cache with validity flags |
+| `fermi_bose.f90` | `fermi_bose.c` | Identical formulas |
+| `digamma.f90` | `digamma.c` | Pure Fortran asymptotic series (from Rust's optimized 10-term algorithm) |
+| `regularized.f90` | `regularized.c` | Factored digamma precomputation (O(N) instead of O(N²) calls) |
+| `cotunneling.f90` | `cotunneling.c` | Convergence wrappers with selective recomputation; largest module |
+| `rate.f90` | `rate.c` | Flat allocatable array rate store with index arithmetic |
+| `matrix.f90` | `matrix.c` | Same index mapping, sigma functions, peq |
+| `solver.f90` | `solver.c` | LAPACK `dgesv` (LU factorization); augmented system, clamp+renormalize |
+| `current.f90` | `current.c` | Same sign conventions: 0→1 R−L, 1→0 L−R, cot RL−LR |
+| `simulate.f90` | `simulate.c` | FC cache shared across bias points, rate store per bias point |
+| `json_io.f90` | `json_io.c` | Custom minimal JSON parser (no external library) |
+| `plotting.f90` | `plotting.c` | gnuplot via `execute_command_line`; PDF + PNG |
+| `main.f90` | `main.c` | `system_clock()` timing; 3 runs + median; validation excludes MATLAB solver artifacts |
+
+### Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Pure Fortran digamma (10-term Bernoulli, from Rust) | No GSL FFI needed; Fortran native complex(8) supports all operations |
+| LAPACK `dgesv` for steady-state solver | Universally available; LU factorization on augmented system; macOS Accelerate framework |
+| Custom minimal JSON parser | Fortran has no standard JSON library; benchmark JSON format is simple enough for string parsing |
+| 256×256 FC cache with logical validity array | Same pattern as C; Fortran allocatable arrays with 0-based bounds |
+| Flat allocatable rate store | `allocatable :: data(:)` with manual index arithmetic; matches C's flat array approach |
+| `ieee_arithmetic` module for infinity | Portable IEEE 754 infinity for tau="Inf" handling |
+| gnuplot via `execute_command_line` | Same approach as C port; writes script to temp file, executes gnuplot |
+
+### Complex Digamma/Trigamma Strategy
+
+Fortran has native `complex(kind=8)` support with intrinsic `log`, `sin`, `cos`, `exp`, `abs` for complex arguments. The implementation ports Rust's optimized algorithm:
+
+1. **Digamma ψ(z)**: 10-term Bernoulli asymptotic series with:
+   - Reflection formula for Re(z) ≤ 0
+   - Recurrence shift until |z|² ≥ 100 (norm_sqr avoids sqrt)
+   - Pre-computed coefficients: `DIGAMMA_COEFF(k) = B_{2(k+1)} / (2*(k+1))`
+   - Multiply-instead-of-divide pattern: `inv_power * coeff` instead of `coeff / power`
+
+2. **Trigamma ψ'(z)**: 10-term Bernoulli asymptotic series with:
+   - Same reflection and recurrence as digamma
+   - Direct use of `BERNOULLI_EVEN` coefficients
+
+### Performance Notes
+
+The Fortran port runs the quick spec (N=6) in ~2.1 seconds on Apple Silicon — an **878x speedup** over MATLAB (1844s), faster than C+GSL (2.3s) and comparable to Rust (1.5s).
+
+The key optimizations are inherited from the C and Rust ports:
+1. **Factored digamma precomputation** in `regularized_I`: 4×N calls instead of 4×N²
+2. **10-term Bernoulli series** with pre-computed coefficients (from Rust)
+3. **norm_sqr threshold**: avoids sqrt per recurrence iteration
+4. **LAPACK on Accelerate**: Apple's optimized BLAS/LAPACK via the Accelerate framework
+
+### Numerical Precision Notes
+
+The Fortran port matches MATLAB to **7.65e-5 max relative error** at 199 of 201 bias points (quick spec), identical to the C and Rust ports. The 2 outlier points (Vsd ≈ 0.219, 0.585) are the known MATLAB solver artifacts.
+
+### Lessons from the Fortran Port
+
+- **Fortran's native complex(8) is excellent**: All complex transcendentals (`log`, `sin`, `cos`, `exp`, `abs`) work out of the box. No need for external libraries.
+- **LAPACK is universally available**: On macOS, `-framework Accelerate` provides optimized LAPACK. On Linux, `-llapack -lblas` suffices.
+- **Custom JSON parser is viable**: The benchmark JSON format is simple enough that a ~200-line string parser handles all I/O. No need for json-fortran or C interop.
+- **0-based vs 1-based indexing**: Fortran arrays default to 1-based, but phonon state indices are 0-based. The cleanest approach: keep physics indices as 0-based integers, use `array(idx+1)` for array access or declare with explicit `0:N-1` bounds.
+- **`ieee_arithmetic` module**: `ieee_value(1.0d0, ieee_positive_inf)` provides portable IEEE infinity. `1.0d0 / infinity == 0.0d0` works for tau=Inf handling.
+- **Module compilation order matters**: Fortran modules must be compiled in dependency order. The Makefile lists sources in topological order.
+- **`implicit none` everywhere**: Catches typos that would silently create new variables in classic Fortran.
+- **Argument declaration ordering**: In Fortran, dummy arguments used as array dimensions must be declared before the arrays that use them (e.g., `integer, intent(in) :: nVsd` before `real(8), intent(in) :: Vsd(nVsd)`).

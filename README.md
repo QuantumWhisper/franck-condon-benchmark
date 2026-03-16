@@ -47,7 +47,10 @@ The simulation computes I-V curves by solving quantum master equations that incl
 │   ├── Makefile     # Build for macOS + Linux
 │   ├── cJSON.h/.c   # Vendored JSON library
 │   └── c_benchmark  # Compiled binary
-├── fortran/         # Fortran implementation (planned)
+├── fortran/         # Fortran implementation ✅
+│   ├── src/         # Core simulation modules (14 .f90 files)
+│   ├── main.f90     # Benchmark runner
+│   └── Makefile     # Build for macOS + Linux
 ├── rust/            # Rust implementation ✅
 ├── benchmark/
 │   ├── spec/        # Benchmark parameters (quick + default)
@@ -114,6 +117,18 @@ cargo build --release
 
 Pure Rust implementation with no C/FFI dependencies. Uses `num-complex` for complex arithmetic, `nalgebra` for QR decomposition, and custom asymptotic series for complex digamma/trigamma. Includes the factored digamma precomputation optimization from the C port. Uses gnuplot for PDF/PNG plots.
 
+## Quick Start (Fortran)
+
+```bash
+cd fortran
+make
+./fortran_benchmark quick     # Fast validation (N=6, ~2.1 seconds)
+./fortran_benchmark default   # Full benchmark (N=15)
+./fortran_benchmark           # Same as 'default'
+```
+
+Pure Fortran 2008 implementation with no C/FFI dependencies. Uses LAPACK (via macOS Accelerate or `-llapack -lblas`) for linear system solve. Custom complex digamma/trigamma via Rust's optimized 10-term Bernoulli asymptotic series. Includes factored digamma precomputation. Uses gnuplot for PDF/PNG plots.
+
 ## Outputs
 
 Each run produces four files in `benchmark/results/`:
@@ -130,9 +145,10 @@ Each run produces four files in `benchmark/results/`:
 | Python | 11 s | — | **169x** |
 | Julia | 5.2 s | — | **358x** |
 | C (GSL) | 2.3 s | — | **809x** |
+| Fortran | 2.1 s | — | **878x** |
 | Rust | 1.5 s | — | **1230x** |
 
-*Quick spec on Apple Silicon. All ports replace MATLAB's symbolic digamma bottleneck with native complex implementations. Rust achieves top speed via optimized pure Rust digamma (10-term Bernoulli, pre-computed coefficients, multiply-instead-of-divide), factored precomputation in regularized integrals (O(N) instead of O(N²) calls), and aggressive #[inline] + LTO.*
+*Quick spec on Apple Silicon. All ports replace MATLAB's symbolic digamma bottleneck with native complex implementations. Rust achieves top speed via optimized pure Rust digamma (10-term Bernoulli, pre-computed coefficients, multiply-instead-of-divide), factored precomputation in regularized integrals (O(N) instead of O(N²) calls), and aggressive #[inline] + LTO. Fortran uses the same Rust-derived digamma algorithm and matches C performance.*
 
 ## Language Status
 
@@ -143,7 +159,7 @@ Each run produces four files in `benchmark/results/`:
 | Python (Numba) | ✅ Complete | 169x faster (quick spec) |
 | C (GSL) | ✅ Complete | 809x faster (quick spec) |
 | Rust | ✅ Complete | 1230x faster (quick spec) |
-| Fortran | 🔲 Planned | |
+| Fortran | ✅ Complete | 878x faster (quick spec) |
 
 ## Reference
 
