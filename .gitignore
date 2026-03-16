@@ -24,6 +24,7 @@ __pycache__/
 # Rust
 rust/target/
 rust/Cargo.lock
+*_export.csv
 
 # C build artifacts
 c/*.o

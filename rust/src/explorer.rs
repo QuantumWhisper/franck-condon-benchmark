@@ -145,6 +145,7 @@ struct App {
     stability_elapsed: Option<Duration>,
 
     // background computation
+    compute_start: Instant,
     compute_running: bool,
     compute_rx: mpsc::Receiver<ComputeMsg>,
     _keep_tx: mpsc::Sender<ComputeMsg>,
@@ -184,6 +185,7 @@ impl App {
             stability_vsd_vals: Vec::new(),
             stability_progress: (0, 0),
             stability_elapsed: None,
+            compute_start: Instant::now(),
             compute_running: false,
             compute_rx: rx,
             _keep_tx: tx,
@@ -383,6 +385,7 @@ impl App {
         let (tx, rx) = mpsc::channel();
         self.compute_rx = rx;
         self.cancel_flag = Arc::new(AtomicBool::new(false));
+        self.compute_start = Instant::now();
         self.compute_running = true;
 
         let n = self.n;
@@ -432,6 +435,7 @@ impl App {
         let (tx, rx) = mpsc::channel();
         self.compute_rx = rx;
         self.cancel_flag = Arc::new(AtomicBool::new(false));
+        self.compute_start = Instant::now();
         self.compute_running = true;
 
         let vg_vals: Vec<f64> = (0..self.n_vg)
@@ -631,7 +635,7 @@ fn render_params(frame: &mut Frame, area: Rect, app: &App) {
         };
 
         let (text, style) = if app.compute_running {
-            let dots = ".".repeat((Instant::now().elapsed().as_millis() as usize / 500 % 4) + 1);
+            let dots = ".".repeat((app.compute_start.elapsed().as_millis() as usize / 500 % 4) + 1);
             (
                 format!("  Computing{:<3}", dots),
                 Style::new().fg(Color::Cyan),
