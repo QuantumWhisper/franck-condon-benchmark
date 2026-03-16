@@ -51,7 +51,7 @@ The simulation computes I-V curves by solving quantum master equations that incl
 │   ├── src/         # Core simulation modules (14 .f90 files)
 │   ├── main.f90     # Benchmark runner
 │   └── Makefile     # Build for macOS + Linux
-├── rust/            # Rust implementation ✅
+├── rust/            # Rust implementation ✅ + interactive explorer
 ├── benchmark/
 │   ├── spec/        # Benchmark parameters (quick + default)
 │   └── results/     # Outputs: JSON, CSV, PDF, PNG per language
@@ -116,6 +116,20 @@ cargo build --release
 ```
 
 Pure Rust implementation with no C/FFI dependencies. Uses `num-complex` for complex arithmetic, `nalgebra` for QR decomposition, and custom asymptotic series for complex digamma/trigamma. Includes the factored digamma precomputation optimization from the C port. Uses gnuplot for PDF/PNG plots.
+
+### Interactive Explorer (Rust TUI)
+
+```bash
+cd rust
+cargo run --release --bin rust_explorer
+```
+
+A terminal UI for real-time parameter exploration with two modes:
+
+- **I-V Curve**: adjust parameters with arrow keys and see the I-V curve update automatically (300ms debounce). Three curves: I_tol (green), I_seq (yellow), I_cot (cyan) rendered with Braille markers.
+- **Stability Diagram**: 2D color map of |I(Vg, Vsd)| with Viridis colormap, log-scale colorbar, axis labels, and a progress bar. FCCache and DigammaTable are shared across all Vg points for efficiency.
+
+Keybindings: `↑↓` select parameter, `←→` adjust (Shift=fine), `Enter` run, `Tab` switch mode, `e` export CSV, `Esc` cancel, `q` quit.
 
 ## Quick Start (Fortran)
 

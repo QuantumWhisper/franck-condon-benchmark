@@ -327,6 +327,7 @@ The Rust port follows the C port structure (which is itself a faithful MATLAB tr
 | `json_io.rs` | `json_io.c` | `serde_json` for parsing; manual JSON/CSV writing for output |
 | `plotting.rs` | `plotting.c` | gnuplot via `std::process::Command`; PDF + PNG |
 | `main.rs` | `main.c` | `std::time::Instant` timing; 3 runs + median; validation excludes MATLAB solver artifacts |
+| `explorer.rs` | *(new)* | Interactive TUI (ratatui + crossterm): I-V curve explorer with auto-recompute, stability diagram with heatmap |
 
 ### Design Decisions
 
@@ -390,7 +391,7 @@ The error budget is identical to all other ports:
 - **Rust's borrow checker catches array aliasing bugs**: The C port's `sort3(&a[0], &a[1], &a[2])` pattern doesn't compile in Rust — use `arr.sort_by()` instead.
 - **`f64::INFINITY` and IEEE 754**: `1.0 / f64::INFINITY == 0.0` works in Rust just as `1.0/INFINITY` works in C, so `tau=Inf` requires no special handling.
 - **No CSV crate needed**: Manual `write!` with `{:.6e}` format matches the C port's `fprintf(fp, "%.6e")` output exactly.
-- **Minimal dependencies**: 5 crates (num-complex, serde, serde_json, nalgebra, rayon) — the entire simulation is pure Rust.
+- **Minimal dependencies**: 5 crates (num-complex, serde, serde_json, nalgebra, rayon) for simulation + ratatui for the interactive explorer.
 
 ### Performance Optimizations (post-benchmark)
 
@@ -441,6 +442,35 @@ The Rust port validates inputs and handles edge cases that other ports may not:
 - `fermi` with very large |(x-mu)/kT|: explicitly returns 0 or 1 to avoid exp overflow
 - `bose_fcn(x, T)` at T≤0: returns 0
 - `bose_fcn` with x≈0: guards against 1/(exp(0)-1) = 1/0
+
+### Interactive Explorer (rust/src/explorer.rs)
+
+The Rust crate includes a second binary target (`rust_explorer`) — a terminal UI for real-time parameter exploration built with ratatui 0.29 + crossterm.
+
+**Architecture:**
+- `App` struct owns all state: simulation parameters, results, background thread handles
+- Event loop: `event::poll(50ms)` for keyboard input + `try_recv()` for computation results
+- Background computation via `std::thread::spawn` + `mpsc::channel` for non-blocking UI
+- FCCache and DigammaTable created once per stability diagram run, shared across all Vg iterations via `simulate_iv_with_cache()`
+
+**Two modes:**
+
+| Mode | Description | Computation | Update |
+|------|-------------|-------------|--------|
+| I-V Curve | Chart widget with 3 Braille-line datasets (I_tol, I_seq, I_cot) | Single `simulate_iv_with_cache` call (~0.3s at N=6) | Auto-recompute on parameter change (300ms debounce) |
+| Stability Diagram | Half-block heatmap with Viridis colormap, axis labels, log-scale colorbar | Loop over Vg values, each row sent via channel for progressive rendering | Manual (Enter to start, Esc to cancel) |
+
+**Key implementation details:**
+- `Heatmap` custom Widget: renders `data[vg_idx][vsd_idx]` as half-block characters (`▀`) with per-cell fg/bg colors for 2× vertical resolution. Log-scale normalization.
+- `Colorbar` Widget: vertical Viridis gradient strip with `lg|I|` label and numeric bounds.
+- Auto-recompute: `iv_recompute_at: Option<Instant>` debounce timer, set 300ms after each parameter change in I-V mode. Checked in `poll_messages()`. Parameters adjustable even while computing.
+- Stability mode blocks parameter adjustment during computation (too expensive to auto-recompute).
+- CSV export: `e` key exports `iv_export.csv` or `stability_export.csv`.
+
+**Keybindings:**
+- `↑↓` navigate parameters, `←→` adjust (Shift=fine step)
+- `Enter` trigger computation / cancel running computation
+- `Tab` switch mode, `e` export CSV, `Esc` cancel, `q` quit
 
 ## Fortran Implementation (fortran/src/)
 

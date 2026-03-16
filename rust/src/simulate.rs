@@ -15,6 +15,82 @@ pub struct SimulationResult {
     pub i_cot: Vec<f64>,
 }
 
+/// Simulate I-V curve using pre-built caches.
+/// Does NOT validate parameters — the caller is responsible for validation.
+/// Use this when running multiple simulations with the same lambda (e.g., stability diagrams)
+/// to avoid recreating FCCache and DigammaTable for each gate voltage.
+pub fn simulate_iv_with_cache(
+    n: usize,
+    vmode: f64,
+    alpha_l: f64,
+    alpha_r: f64,
+    lambda: f64,
+    vsd_vec: &[f64],
+    t: f64,
+    eta: f64,
+    vg: f64,
+    tau: f64,
+    fc: &FCCache,
+    dtable: &DigammaTable,
+) -> SimulationResult {
+    let n_vsd = vsd_vec.len();
+
+    if n == 0 || n_vsd == 0 {
+        return SimulationResult {
+            vsd: vsd_vec.to_vec(),
+            i_tol: vec![0.0; n_vsd],
+            i_seq: vec![0.0; n_vsd],
+            i_cot: vec![0.0; n_vsd],
+        };
+    }
+
+    let results: Vec<(f64, f64, f64)> = vsd_vec
+        .par_iter()
+        .map(|&v| {
+            let mut store = RateStore::new(n);
+
+            calculate_all_rate_w(
+                &mut store, n, vmode, alpha_l, alpha_r, lambda, v, t, eta, 1, vg, fc,
+                Some(dtable),
+            );
+            calculate_all_rate_w(
+                &mut store, n, vmode, alpha_l, alpha_r, lambda, v, t, eta, -1, vg, fc,
+                Some(dtable),
+            );
+
+            let mut cr = current_from_rate_equations(n, vmode, t, tau, &store);
+
+            if v != 0.0 {
+                let s = if v > 0.0 { -1.0 } else { 1.0 };
+                cr.i_tol *= s;
+                cr.i_seq *= s;
+                cr.i_cot *= s;
+            }
+
+            (
+                cr.i_tol * ELEMENTARY_CHARGE,
+                cr.i_seq * ELEMENTARY_CHARGE,
+                cr.i_cot * ELEMENTARY_CHARGE,
+            )
+        })
+        .collect();
+
+    let mut result = SimulationResult {
+        vsd: vsd_vec.to_vec(),
+        i_tol: vec![0.0; n_vsd],
+        i_seq: vec![0.0; n_vsd],
+        i_cot: vec![0.0; n_vsd],
+    };
+
+    for (vv, &(i_tol, i_seq, i_cot)) in results.iter().enumerate() {
+        result.i_tol[vv] = i_tol;
+        result.i_seq[vv] = i_seq;
+        result.i_cot[vv] = i_cot;
+    }
+
+    result
+}
+
 pub fn simulate_iv(
     n: usize,
     vmode: f64,
