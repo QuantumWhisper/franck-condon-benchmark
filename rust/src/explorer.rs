@@ -72,6 +72,124 @@ impl AppMode {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+enum DisplayMode {
+    Current,
+    Conductance,
+    Iets,
+    NormalizedIets,
+}
+
+impl DisplayMode {
+    fn next(self) -> Self {
+        match self {
+            Self::Current => Self::Conductance,
+            Self::Conductance => Self::Iets,
+            Self::Iets => Self::NormalizedIets,
+            Self::NormalizedIets => Self::Current,
+        }
+    }
+
+    fn suffix(self) -> &'static str {
+        match self {
+            Self::Current => "",
+            Self::Conductance => " [dI/dV]",
+            Self::Iets => " [IETS]",
+            Self::NormalizedIets => " [nIETS]",
+        }
+    }
+
+    fn y_label(self) -> &'static str {
+        match self {
+            Self::Current => "I (A)",
+            Self::Conductance => "dI/dV (S)",
+            Self::Iets => "d\u{00b2}I/dV\u{00b2} (S/V)",
+            Self::NormalizedIets => "IETS/G (1/V)",
+        }
+    }
+
+    fn dataset_names(self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            Self::Current => ("I_tol", "I_seq", "I_cot"),
+            Self::Conductance => ("G_tol", "G_seq", "G_cot"),
+            Self::Iets => ("d\u{00b2}_tol", "d\u{00b2}_seq", "d\u{00b2}_cot"),
+            Self::NormalizedIets => ("nI_tol", "nI_seq", "nI_cot"),
+        }
+    }
+
+    fn colorbar_label(self) -> &'static str {
+        match self {
+            Self::Current => "lg|I|",
+            Self::Conductance => "lg|G|",
+            Self::Iets => "lg|d\u{00b2}I|",
+            Self::NormalizedIets => "lg|nI|",
+        }
+    }
+
+    fn iv_csv_header(self) -> &'static str {
+        match self {
+            Self::Current => "Vsd_V,I_tol_A,I_seq_A,I_cot_A",
+            Self::Conductance => "Vsd_V,dIdV_tol_S,dIdV_seq_S,dIdV_cot_S",
+            Self::Iets => "Vsd_V,d2IdV2_tol,d2IdV2_seq,d2IdV2_cot",
+            Self::NormalizedIets => "Vsd_V,nIETS_tol,nIETS_seq,nIETS_cot",
+        }
+    }
+
+    fn grid_csv_column(self) -> &'static str {
+        match self {
+            Self::Current => "I_tol_A",
+            Self::Conductance => "dIdV_S",
+            Self::Iets => "d2IdV2",
+            Self::NormalizedIets => "nIETS",
+        }
+    }
+
+    fn iv_export_filename(self) -> &'static str {
+        match self {
+            Self::Current => "iv_export.csv",
+            Self::Conductance => "iv_didv_export.csv",
+            Self::Iets => "iv_iets_export.csv",
+            Self::NormalizedIets => "iv_niets_export.csv",
+        }
+    }
+
+    fn stability_export_filename(self) -> &'static str {
+        match self {
+            Self::Current => "stability_export.csv",
+            Self::Conductance => "stability_didv_export.csv",
+            Self::Iets => "stability_iets_export.csv",
+            Self::NormalizedIets => "stability_niets_export.csv",
+        }
+    }
+
+    fn temperature_export_filename(self) -> &'static str {
+        match self {
+            Self::Current => "temperature_export.csv",
+            Self::Conductance => "temperature_didv_export.csv",
+            Self::Iets => "temperature_iets_export.csv",
+            Self::NormalizedIets => "temperature_niets_export.csv",
+        }
+    }
+
+    fn transform(self, vsd: &[f64], current: &[f64]) -> Vec<f64> {
+        match self {
+            Self::Current => current.to_vec(),
+            Self::Conductance => compute_didv(vsd, current),
+            Self::Iets => compute_d2idv2(vsd, current),
+            Self::NormalizedIets => compute_normalized_iets(vsd, current),
+        }
+    }
+
+    fn transform_grid(self, grid: &[Vec<f64>], vsd_vals: &[f64]) -> Vec<Vec<f64>> {
+        match self {
+            Self::Current => grid.to_vec(),
+            Self::Conductance => compute_didv_grid(grid, vsd_vals),
+            Self::Iets => compute_d2idv2_grid(grid, vsd_vals),
+            Self::NormalizedIets => compute_normalized_iets_grid(grid, vsd_vals),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum ParamId {
     N,
     Lambda,
@@ -179,7 +297,7 @@ struct App {
     _keep_tx: mpsc::Sender<ComputeMsg>,
     cancel_flag: Arc<AtomicBool>,
 
-    show_didv: bool,
+    display_mode: DisplayMode,
     status_msg: Option<(String, bool)>, // (message, is_error)
     iv_recompute_at: Option<Instant>,
 }
@@ -229,7 +347,7 @@ impl App {
             compute_rx: rx,
             _keep_tx: tx,
             cancel_flag: Arc::new(AtomicBool::new(false)),
-            show_didv: false,
+            display_mode: DisplayMode::Current,
             status_msg: None,
             iv_recompute_at: None,
         }
@@ -705,20 +823,17 @@ impl App {
     }
 
     fn export_stability(&self) -> io::Result<String> {
-        let didv_buf: Vec<Vec<f64>>;
-        let filename: &str;
-        let header: &str;
-        let grid: &[Vec<f64>];
-        if self.show_didv {
-            filename = "stability_didv_export.csv";
-            header = "Vg_V,Vsd_V,dIdV_S";
-            didv_buf = compute_didv_grid(&self.stability_grid, &self.stability_vsd_vals);
-            grid = &didv_buf;
+        let buf: Vec<Vec<f64>>;
+        let grid: &[Vec<f64>] = if self.display_mode == DisplayMode::Current {
+            &self.stability_grid
         } else {
-            filename = "stability_export.csv";
-            header = "Vg_V,Vsd_V,I_tol_A";
-            grid = &self.stability_grid;
-        }
+            buf = self
+                .display_mode
+                .transform_grid(&self.stability_grid, &self.stability_vsd_vals);
+            &buf
+        };
+        let filename = self.display_mode.stability_export_filename();
+        let header = format!("Vg_V,Vsd_V,{}", self.display_mode.grid_csv_column());
         let mut f = std::fs::File::create(filename)?;
         writeln!(f, "{}", header)?;
         for (i, &vg) in self.stability_vg_vals.iter().enumerate() {
@@ -736,54 +851,37 @@ impl App {
 
     fn export_iv(&self) -> io::Result<String> {
         if let Some((ref data, _)) = self.iv_data {
-            if self.show_didv {
-                let filename = "iv_didv_export.csv";
-                let g_tol = compute_didv(&data.vsd, &data.i_tol);
-                let g_seq = compute_didv(&data.vsd, &data.i_seq);
-                let g_cot = compute_didv(&data.vsd, &data.i_cot);
-                let mut f = std::fs::File::create(filename)?;
-                writeln!(f, "Vsd_V,dIdV_tol_S,dIdV_seq_S,dIdV_cot_S")?;
-                for i in 0..data.vsd.len() {
-                    writeln!(
-                        f,
-                        "{:.6e},{:.6e},{:.6e},{:.6e}",
-                        data.vsd[i], g_tol[i], g_seq[i], g_cot[i]
-                    )?;
-                }
-                Ok(filename.into())
-            } else {
-                let filename = "iv_export.csv";
-                let mut f = std::fs::File::create(filename)?;
-                writeln!(f, "Vsd_V,I_tol_A,I_seq_A,I_cot_A")?;
-                for i in 0..data.vsd.len() {
-                    writeln!(
-                        f,
-                        "{:.6e},{:.6e},{:.6e},{:.6e}",
-                        data.vsd[i], data.i_tol[i], data.i_seq[i], data.i_cot[i]
-                    )?;
-                }
-                Ok(filename.into())
+            let filename = self.display_mode.iv_export_filename();
+            let v1 = self.display_mode.transform(&data.vsd, &data.i_tol);
+            let v2 = self.display_mode.transform(&data.vsd, &data.i_seq);
+            let v3 = self.display_mode.transform(&data.vsd, &data.i_cot);
+            let mut f = std::fs::File::create(filename)?;
+            writeln!(f, "{}", self.display_mode.iv_csv_header())?;
+            for i in 0..data.vsd.len() {
+                writeln!(
+                    f,
+                    "{:.6e},{:.6e},{:.6e},{:.6e}",
+                    data.vsd[i], v1[i], v2[i], v3[i]
+                )?;
             }
+            Ok(filename.into())
         } else {
             Err(io::Error::new(io::ErrorKind::Other, "No I-V data"))
         }
     }
 
     fn export_temperature(&self) -> io::Result<String> {
-        let didv_buf: Vec<Vec<f64>>;
-        let filename: &str;
-        let header: &str;
-        let grid: &[Vec<f64>];
-        if self.show_didv {
-            filename = "temperature_didv_export.csv";
-            header = "T_K,Vsd_V,dIdV_S";
-            didv_buf = compute_didv_grid(&self.temperature_grid, &self.temperature_vsd_vals);
-            grid = &didv_buf;
+        let buf: Vec<Vec<f64>>;
+        let grid: &[Vec<f64>] = if self.display_mode == DisplayMode::Current {
+            &self.temperature_grid
         } else {
-            filename = "temperature_export.csv";
-            header = "T_K,Vsd_V,I_tol_A";
-            grid = &self.temperature_grid;
-        }
+            buf = self
+                .display_mode
+                .transform_grid(&self.temperature_grid, &self.temperature_vsd_vals);
+            &buf
+        };
+        let filename = self.display_mode.temperature_export_filename();
+        let header = format!("T_K,Vsd_V,{}", self.display_mode.grid_csv_column());
         let mut f = std::fs::File::create(filename)?;
         writeln!(f, "{}", header)?;
         for (i, &t) in self.temperature_t_vals.iter().enumerate() {
@@ -840,9 +938,6 @@ fn compute_didv(vsd: &[f64], current: &[f64]) -> Vec<f64> {
     g
 }
 
-/// Compute dI/dV for each column of a 2D grid.
-/// Each entry grid[col] is I(Vsd) at a fixed parameter (Vg or T).
-/// Returns the same shape grid with dI/dVsd values.
 fn compute_didv_grid(grid: &[Vec<f64>], vsd_vals: &[f64]) -> Vec<Vec<f64>> {
     grid.iter()
         .map(|row| {
@@ -850,6 +945,64 @@ fn compute_didv_grid(grid: &[Vec<f64>], vsd_vals: &[f64]) -> Vec<Vec<f64>> {
                 Vec::new()
             } else {
                 compute_didv(vsd_vals, row)
+            }
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// IETS: d²I/dV² via 3-point central finite differences
+// ---------------------------------------------------------------------------
+
+fn compute_d2idv2(vsd: &[f64], current: &[f64]) -> Vec<f64> {
+    let n = vsd.len().min(current.len());
+    if n < 3 {
+        return vec![0.0; n];
+    }
+    let mut d2 = vec![0.0; n];
+    for i in 1..n - 1 {
+        let h1 = vsd[i] - vsd[i - 1];
+        let h2 = vsd[i + 1] - vsd[i];
+        let denom = h1 * h2 * (h1 + h2) / 2.0;
+        d2[i] = if denom.abs() > 1e-60 {
+            (current[i - 1] * h2 - current[i] * (h1 + h2) + current[i + 1] * h1) / denom
+        } else {
+            0.0
+        };
+    }
+    d2[0] = d2[1];
+    d2[n - 1] = d2[n - 2];
+    d2
+}
+
+fn compute_d2idv2_grid(grid: &[Vec<f64>], vsd_vals: &[f64]) -> Vec<Vec<f64>> {
+    grid.iter()
+        .map(|row| {
+            if row.is_empty() {
+                Vec::new()
+            } else {
+                compute_d2idv2(vsd_vals, row)
+            }
+        })
+        .collect()
+}
+
+fn compute_normalized_iets(vsd: &[f64], current: &[f64]) -> Vec<f64> {
+    let didv = compute_didv(vsd, current);
+    let d2idv2 = compute_d2idv2(vsd, current);
+    didv.iter()
+        .zip(d2idv2.iter())
+        .map(|(&g, &d2)| if g.abs() > 1e-30 { d2 / g } else { 0.0 })
+        .collect()
+}
+
+fn compute_normalized_iets_grid(grid: &[Vec<f64>], vsd_vals: &[f64]) -> Vec<Vec<f64>> {
+    grid.iter()
+        .map(|row| {
+            if row.is_empty() {
+                Vec::new()
+            } else {
+                compute_normalized_iets(vsd_vals, row)
             }
         })
         .collect()
@@ -880,11 +1033,7 @@ fn render(frame: &mut Frame, app: &App) {
 
 fn render_params(frame: &mut Frame, area: Rect, app: &App) {
     let params = app.visible_params();
-    let mode_str = if app.show_didv {
-        format!("{} [dI/dV]", app.mode.label())
-    } else {
-        app.mode.label().to_string()
-    };
+    let mode_str = format!("{}{}", app.mode.label(), app.display_mode.suffix());
     let block = Block::bordered().title(Line::from(format!(" {} ", mode_str)).centered());
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -941,72 +1090,47 @@ fn render_params(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_iv_chart(frame: &mut Frame, area: Rect, app: &App) {
-    let title = if app.show_didv {
-        format!(
-            " dI/dV  N={}  l={:.1}  T={:.1}K ",
-            app.n, app.lambda, app.t_kelvin
-        )
-    } else {
-        format!(
-            " I-V Curve  N={}  l={:.1}  T={:.1}K ",
-            app.n, app.lambda, app.t_kelvin
-        )
-    };
+    let dm = app.display_mode;
+    let title = format!(
+        " {}  N={}  l={:.1}  T={:.1}K ",
+        match dm {
+            DisplayMode::Current => "I-V Curve",
+            DisplayMode::Conductance => "dI/dV",
+            DisplayMode::Iets => "IETS (d\u{00b2}I/dV\u{00b2})",
+            DisplayMode::NormalizedIets => "Norm. IETS",
+        },
+        app.n,
+        app.lambda,
+        app.t_kelvin
+    );
     let block = Block::bordered().title(Line::from(title).centered());
 
     if let Some((ref data, _)) = app.iv_data {
-        let (data_tol, data_seq, data_cot, y_label, n_tol, n_seq, n_cot);
+        let vals_tol = dm.transform(&data.vsd, &data.i_tol);
+        let vals_seq = dm.transform(&data.vsd, &data.i_seq);
+        let vals_cot = dm.transform(&data.vsd, &data.i_cot);
 
-        if app.show_didv {
-            let g_tol = compute_didv(&data.vsd, &data.i_tol);
-            let g_seq = compute_didv(&data.vsd, &data.i_seq);
-            let g_cot = compute_didv(&data.vsd, &data.i_cot);
-            data_tol = data
-                .vsd
-                .iter()
-                .zip(g_tol.iter())
-                .map(|(&x, &y)| (x, y))
-                .collect::<Vec<_>>();
-            data_seq = data
-                .vsd
-                .iter()
-                .zip(g_seq.iter())
-                .map(|(&x, &y)| (x, y))
-                .collect::<Vec<_>>();
-            data_cot = data
-                .vsd
-                .iter()
-                .zip(g_cot.iter())
-                .map(|(&x, &y)| (x, y))
-                .collect::<Vec<_>>();
-            y_label = "dI/dV (S)";
-            n_tol = "G_tol";
-            n_seq = "G_seq";
-            n_cot = "G_cot";
-        } else {
-            data_tol = data
-                .vsd
-                .iter()
-                .zip(data.i_tol.iter())
-                .map(|(&x, &y)| (x, y))
-                .collect::<Vec<_>>();
-            data_seq = data
-                .vsd
-                .iter()
-                .zip(data.i_seq.iter())
-                .map(|(&x, &y)| (x, y))
-                .collect::<Vec<_>>();
-            data_cot = data
-                .vsd
-                .iter()
-                .zip(data.i_cot.iter())
-                .map(|(&x, &y)| (x, y))
-                .collect::<Vec<_>>();
-            y_label = "I (A)";
-            n_tol = "I_tol";
-            n_seq = "I_seq";
-            n_cot = "I_cot";
-        }
+        let data_tol: Vec<(f64, f64)> = data
+            .vsd
+            .iter()
+            .zip(vals_tol.iter())
+            .map(|(&x, &y)| (x, y))
+            .collect();
+        let data_seq: Vec<(f64, f64)> = data
+            .vsd
+            .iter()
+            .zip(vals_seq.iter())
+            .map(|(&x, &y)| (x, y))
+            .collect();
+        let data_cot: Vec<(f64, f64)> = data
+            .vsd
+            .iter()
+            .zip(vals_cot.iter())
+            .map(|(&x, &y)| (x, y))
+            .collect();
+
+        let y_label = dm.y_label();
+        let (n_tol, n_seq, n_cot) = dm.dataset_names();
 
         let x_min = data.vsd.first().copied().unwrap_or(0.0);
         let x_max = data.vsd.last().copied().unwrap_or(1.0);
@@ -1091,17 +1215,13 @@ fn render_iv_chart(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_stability(frame: &mut Frame, area: Rect, app: &App) {
-    let title = if app.show_didv {
-        format!(
-            " dI/dV Stability  N={}  l={:.1}  T={:.1}K ",
-            app.n, app.lambda, app.t_kelvin
-        )
-    } else {
-        format!(
-            " Stability  N={}  l={:.1}  T={:.1}K ",
-            app.n, app.lambda, app.t_kelvin
-        )
-    };
+    let title = format!(
+        " Stability{}  N={}  l={:.1}  T={:.1}K ",
+        app.display_mode.suffix(),
+        app.n,
+        app.lambda,
+        app.t_kelvin
+    );
 
     let prog_h = if app.compute_running || app.stability_progress.1 > 0 {
         3u16
@@ -1118,12 +1238,14 @@ fn render_stability(frame: &mut Frame, area: Rect, app: &App) {
         let inner = block.inner(map_area);
         frame.render_widget(block, map_area);
 
-        let didv_grid_buf: Vec<Vec<f64>>;
-        let display_grid: &[Vec<f64>] = if app.show_didv {
-            didv_grid_buf = compute_didv_grid(&app.stability_grid, &app.stability_vsd_vals);
-            &didv_grid_buf
-        } else {
+        let grid_buf: Vec<Vec<f64>>;
+        let display_grid: &[Vec<f64>] = if app.display_mode == DisplayMode::Current {
             &app.stability_grid
+        } else {
+            grid_buf = app
+                .display_mode
+                .transform_grid(&app.stability_grid, &app.stability_vsd_vals);
+            &grid_buf
         };
 
         let mut log_min = f64::INFINITY;
@@ -1248,7 +1370,7 @@ fn render_stability(frame: &mut Frame, area: Rect, app: &App) {
             if cblabel_area.height >= 4 {
                 let cb_title = Rect::new(cblabel_area.x, cblabel_area.y + 1, cblabel_area.width, 1);
                 frame.render_widget(
-                    Paragraph::new(if app.show_didv { "lg|G|" } else { "lg|I|" })
+                    Paragraph::new(app.display_mode.colorbar_label())
                         .style(Style::new().fg(Color::DarkGray)),
                     cb_title,
                 );
@@ -1286,17 +1408,13 @@ fn render_stability(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn render_temperature(frame: &mut Frame, area: Rect, app: &App) {
-    let title = if app.show_didv {
-        format!(
-            " dI/dV Temperature  N={}  l={:.1}  Vg={:.3}V ",
-            app.n, app.lambda, app.vg
-        )
-    } else {
-        format!(
-            " Temperature  N={}  l={:.1}  Vg={:.3}V ",
-            app.n, app.lambda, app.vg
-        )
-    };
+    let title = format!(
+        " Temperature{}  N={}  l={:.1}  Vg={:.3}V ",
+        app.display_mode.suffix(),
+        app.n,
+        app.lambda,
+        app.vg
+    );
 
     let prog_h = if app.compute_running || app.temperature_progress.1 > 0 {
         3u16
@@ -1313,12 +1431,14 @@ fn render_temperature(frame: &mut Frame, area: Rect, app: &App) {
         let inner = block.inner(map_area);
         frame.render_widget(block, map_area);
 
-        let didv_grid_buf: Vec<Vec<f64>>;
-        let display_grid: &[Vec<f64>] = if app.show_didv {
-            didv_grid_buf = compute_didv_grid(&app.temperature_grid, &app.temperature_vsd_vals);
-            &didv_grid_buf
-        } else {
+        let grid_buf: Vec<Vec<f64>>;
+        let display_grid: &[Vec<f64>] = if app.display_mode == DisplayMode::Current {
             &app.temperature_grid
+        } else {
+            grid_buf = app
+                .display_mode
+                .transform_grid(&app.temperature_grid, &app.temperature_vsd_vals);
+            &grid_buf
         };
 
         let mut log_min = f64::INFINITY;
@@ -1443,7 +1563,7 @@ fn render_temperature(frame: &mut Frame, area: Rect, app: &App) {
             if cblabel_area.height >= 4 {
                 let cb_title = Rect::new(cblabel_area.x, cblabel_area.y + 1, cblabel_area.width, 1);
                 frame.render_widget(
-                    Paragraph::new(if app.show_didv { "lg|G|" } else { "lg|I|" })
+                    Paragraph::new(app.display_mode.colorbar_label())
                         .style(Style::new().fg(Color::DarkGray)),
                     cb_title,
                 );
@@ -1486,13 +1606,10 @@ fn render_help(frame: &mut Frame, area: Rect, app: &App) {
     } else {
         match app.mode {
             AppMode::IVCurve => {
-                " Up/Dn Select | Lt/Rt Adjust (Shift=fine) auto-recompute | d dI/dV | Tab Mode | e Export | q Quit "
+                " Up/Dn Select | Lt/Rt Adj (Shift=fine) auto | d I/G/IETS/nIETS | Tab Mode | e Export | q Quit "
             }
-            AppMode::Stability => {
-                " Up/Dn Select | Lt/Rt Adjust | Enter Run | d dI/dV | Tab Mode | e Export | q Quit "
-            }
-            AppMode::Temperature => {
-                " Up/Dn Select | Lt/Rt Adjust | Enter Run | d dI/dV | Tab Mode | e Export | q Quit "
+            _ => {
+                " Up/Dn Select | Lt/Rt Adjust | Enter Run | d I/G/IETS/nIETS | Tab Mode | e Export | q Quit "
             }
         }
     };
@@ -1685,7 +1802,7 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
             }
         }
         KeyCode::Char('d') | KeyCode::Char('D') => {
-            app.show_didv = !app.show_didv;
+            app.display_mode = app.display_mode.next();
         }
         KeyCode::Char('e') | KeyCode::Char('E') => {
             if !app.compute_running {
