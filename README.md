@@ -110,7 +110,7 @@ Requires GSL (GNU Scientific Library) for QR decomposition and complex digamma. 
 ```bash
 cd rust
 cargo build --release
-./target/release/rust_benchmark quick     # Fast validation (N=6, ~1.5 seconds)
+./target/release/rust_benchmark quick     # Fast validation (N=6, ~0.28 seconds)
 ./target/release/rust_benchmark default   # Full benchmark (N=15)
 ./target/release/rust_benchmark           # Same as 'default'
 ```
@@ -166,9 +166,9 @@ Each run produces four files in `benchmark/results/`:
 | Julia | 5.2 s | — | **358x** |
 | C (GSL) | 2.3 s | — | **809x** |
 | Fortran | 1.6 s | — | **1153x** |
-| Rust | 1.5 s | — | **1230x** |
+| Rust | 0.28 s | — | **6638x** |
 
-*Quick spec on Apple Silicon. All ports replace MATLAB's symbolic digamma bottleneck with native complex implementations. Rust achieves top speed via optimized pure Rust digamma (10-term Bernoulli, pre-computed coefficients, multiply-instead-of-divide), factored precomputation in regularized integrals (O(N) instead of O(N²) calls), and aggressive #[inline] + LTO. Fortran uses the same Rust-derived digamma algorithm with -O3 -march=native -flto, within 5% of Rust.*
+*Quick spec on Apple Silicon. All ports replace MATLAB's symbolic digamma bottleneck with native complex implementations. Rust achieves top speed via Rayon parallel bias-point computation, optimized pure Rust digamma (10-term Bernoulli, pre-computed coefficients, multiply-instead-of-divide), factored precomputation in regularized integrals (O(N) instead of O(N²) calls), and aggressive #[inline] + LTO. Fortran uses the same Rust-derived digamma algorithm with -O3 -march=native -flto.*
 
 ## Language Status
 
@@ -178,7 +178,7 @@ Each run produces four files in `benchmark/results/`:
 | Julia | ✅ Complete | 358x faster (quick spec) |
 | Python (Numba) | ✅ Complete | 169x faster (quick spec) |
 | C (GSL) | ✅ Complete | 809x faster (quick spec) |
-| Rust | ✅ Complete | 1230x faster (quick spec) |
+| Rust | ✅ Complete | 6638x faster (quick spec) |
 | Fortran | ✅ Complete | 1153x faster (quick spec) |
 
 ## Reference
