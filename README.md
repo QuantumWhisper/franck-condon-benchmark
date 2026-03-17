@@ -121,7 +121,8 @@ Pure Rust implementation with no C/FFI dependencies. Uses `num-complex` for comp
 
 ```bash
 cd rust
-cargo run --release --bin rust_explorer
+cargo run --release --bin rust_explorer                      # Fresh session
+cargo run --release --bin rust_explorer -- --load session.json  # Resume saved session
 ```
 
 A terminal UI for real-time parameter exploration with three modes:
@@ -132,7 +133,9 @@ A terminal UI for real-time parameter exploration with three modes:
 
 Each mode supports four display types, cycled with `d`: **Current** (I), **Conductance** (dI/dV), **IETS** (d²I/dV²), and **Normalized IETS** ((d²I/dV²)/(dI/dV)). IETS uses 3-point central finite differences; normalized IETS divides by conductance with safe zero-guard.
 
-Keybindings: `↑↓` select parameter, `←→` adjust (Shift=fine), `d` cycle display (I → G → IETS → nIETS), `Enter` run, `Tab` switch mode, `e` export CSV, `Esc` cancel, `q` quit.
+Sessions can be saved (`s` key) and resumed later (`--load`), preserving all parameters, computed results, and display settings. This avoids re-running expensive stability/temperature diagram computations.
+
+Keybindings: `↑↓` select parameter, `←→` adjust (Shift=fine), `d` cycle display (I → G → IETS → nIETS), `Enter` run, `Tab` switch mode, `e` export CSV, `s` save session, `p` plot, `Esc` cancel, `q` quit.
 
 ## Quick Start (Fortran)
 

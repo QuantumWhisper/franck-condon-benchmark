@@ -4,7 +4,7 @@ use franck_condon::simulate::SimulationResult;
 
 use super::derivatives::*;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) enum AppMode {
     IVCurve,
     Stability,
@@ -21,7 +21,7 @@ impl AppMode {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) enum DisplayMode {
     Current,
     Conductance,

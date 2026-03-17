@@ -17,6 +17,7 @@ pub(crate) mod derivatives;
 pub(crate) mod event;
 pub(crate) mod export;
 pub(crate) mod render;
+pub(crate) mod session;
 pub(crate) mod types;
 pub(crate) mod widgets;
 pub(crate) use types::*;
@@ -86,7 +87,8 @@ pub(crate) struct App {
     pub(crate) cancel_flag: Arc<AtomicBool>,
 
     pub(crate) display_mode: DisplayMode,
-    pub(crate) status_msg: Option<(String, bool)>, // (message, is_error)
+    pub(crate) session_path: String,
+    pub(crate) status_msg: Option<(String, bool)>,
     pub(crate) contrast_min: Option<f64>,
     pub(crate) contrast_max: Option<f64>,
     pub(crate) gamma: f64,
@@ -144,6 +146,7 @@ impl App {
             _keep_tx: tx,
             cancel_flag: Arc::new(AtomicBool::new(false)),
             display_mode: DisplayMode::Current,
+            session_path: session::DEFAULT_SESSION_PATH.to_string(),
             status_msg: None,
             contrast_min: None,
             contrast_max: None,
@@ -632,14 +635,54 @@ impl App {
 // ---------------------------------------------------------------------------
 
 fn main() -> io::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    let mut load_path: Option<String> = None;
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--load" | "-l" => {
+                if i + 1 < args.len() {
+                    load_path = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    eprintln!("Error: --load requires a file path");
+                    std::process::exit(1);
+                }
+            }
+            "--help" | "-h" => {
+                eprintln!("Usage: rust_explorer [--load <session.json>] [<session.json>]");
+                std::process::exit(0);
+            }
+            other => {
+                load_path = Some(other.to_string());
+                i += 1;
+            }
+        }
+    }
+
     let terminal = ratatui::init();
-    let result = run(terminal);
+    let result = run(terminal, load_path);
     ratatui::restore();
     result
 }
 
-fn run(mut terminal: DefaultTerminal) -> io::Result<()> {
+fn run(mut terminal: DefaultTerminal, load_path: Option<String>) -> io::Result<()> {
     let mut app = App::new();
+
+    if let Some(ref path) = load_path {
+        match session::load_session(path) {
+            Ok(sess) => {
+                sess.apply_to(&mut app);
+                app.session_path = path.clone();
+                app.status_msg = Some((format!("Loaded: {}", path), false));
+            }
+            Err(e) => {
+                app.status_msg = Some((format!("Load failed: {}", e), true));
+            }
+        }
+    }
+
     let mut last_tick = Instant::now();
 
     loop {

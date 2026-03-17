@@ -443,7 +443,7 @@ The Rust port validates inputs and handles edge cases that other ports may not:
 - `bose_fcn(x, T)` at T≤0: returns 0
 - `bose_fcn` with x≈0: guards against 1/(exp(0)-1) = 1/0
 
-### Interactive Explorer (rust/src/explorer.rs)
+### Interactive Explorer (rust/src/explorer/)
 
 The Rust crate includes a second binary target (`rust_explorer`) — a terminal UI for real-time parameter exploration built with ratatui 0.29 + crossterm.
 
@@ -452,6 +452,7 @@ The Rust crate includes a second binary target (`rust_explorer`) — a terminal 
 - Event loop: `event::poll(50ms)` for keyboard input + `try_recv()` for computation results
 - Background computation via `std::thread::spawn` + `mpsc::channel` for non-blocking UI
 - FCCache and DigammaTable created once per stability diagram run, shared across all Vg iterations via `simulate_iv_with_cache()`
+- Session save/load via `session.rs`: JSON serialization of all parameters, computed results, and display settings
 
 **Three modes:**
 
@@ -480,11 +481,19 @@ IETS computation uses 3-point central finite differences for d²I/dV² (exact fo
 - Stability mode blocks parameter adjustment during computation (too expensive to auto-recompute).
 - CSV export: `e` key exports with display-mode-appropriate filename and headers (e.g., `iv_iets_export.csv`, `stability_niets_export.csv`).
 
+**Session save/load:**
+- `s` saves the full session to `fc_session.json` (or the path loaded from via `--load`)
+- `--load <path>` CLI argument restores a saved session on startup
+- Session includes: all parameters, I-V data, stability grid, temperature grid, display settings
+- Handles `tau=Infinity` via custom serde (`"Inf"` string in JSON, matching benchmark spec convention)
+- Version field for forward compatibility (rejects sessions from newer versions)
+- Partial stability/temperature diagrams are preserved (empty rows stay empty)
+
 **Keybindings:**
 - `↑↓` navigate parameters, `←→` adjust (Shift=fine step)
 - `d` cycle display mode: I → G → IETS → nIETS → I
 - `Enter` trigger computation / cancel running computation
-- `Tab` switch mode, `e` export CSV, `Esc` cancel, `q` quit
+- `Tab` switch mode, `e` export CSV, `s` save session, `p` plot, `Esc` cancel, `q` quit
 
 ## Fortran Implementation (fortran/src/)
 

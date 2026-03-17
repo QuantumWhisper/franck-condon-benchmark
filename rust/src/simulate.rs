@@ -8,6 +8,7 @@ use crate::digamma_table::DigammaTable;
 use crate::fc_matrix::{FCCache, FC_MAX_N};
 use crate::rate::{calculate_all_rate_w, RateStore};
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct SimulationResult {
     pub vsd: Vec<f64>,
     pub i_tol: Vec<f64>,
@@ -50,11 +51,33 @@ pub fn simulate_iv_with_cache(
             let mut store = RateStore::new(n);
 
             calculate_all_rate_w(
-                &mut store, n, vmode, alpha_l, alpha_r, lambda, v, t, eta, 1, vg, fc,
+                &mut store,
+                n,
+                vmode,
+                alpha_l,
+                alpha_r,
+                lambda,
+                v,
+                t,
+                eta,
+                1,
+                vg,
+                fc,
                 Some(dtable),
             );
             calculate_all_rate_w(
-                &mut store, n, vmode, alpha_l, alpha_r, lambda, v, t, eta, -1, vg, fc,
+                &mut store,
+                n,
+                vmode,
+                alpha_l,
+                alpha_r,
+                lambda,
+                v,
+                t,
+                eta,
+                -1,
+                vg,
+                fc,
                 Some(dtable),
             );
 
@@ -115,19 +138,34 @@ pub fn simulate_iv(
         };
     }
     if t <= 0.0 {
-        panic!("Temperature T must be positive (got T={:.6e}). T=0 is not supported.", t);
+        panic!(
+            "Temperature T must be positive (got T={:.6e}). T=0 is not supported.",
+            t
+        );
     }
     if vmode <= 0.0 {
-        panic!("Phonon energy vmode must be positive (got vmode={:.6e}).", vmode);
+        panic!(
+            "Phonon energy vmode must be positive (got vmode={:.6e}).",
+            vmode
+        );
     }
     if tau <= 0.0 && !tau.is_infinite() {
-        panic!("Phonon relaxation time tau must be positive or Inf (got tau={:.6e}).", tau);
+        panic!(
+            "Phonon relaxation time tau must be positive or Inf (got tau={:.6e}).",
+            tau
+        );
     }
     if alpha_l < 0.0 || alpha_r < 0.0 {
-        panic!("Tunnel couplings alpha_L, alpha_R must be non-negative (got {:.6e}, {:.6e}).", alpha_l, alpha_r);
+        panic!(
+            "Tunnel couplings alpha_L, alpha_R must be non-negative (got {:.6e}, {:.6e}).",
+            alpha_l, alpha_r
+        );
     }
     if lambda < 0.0 {
-        panic!("Electron-phonon coupling lambda must be non-negative (got {:.6e}).", lambda);
+        panic!(
+            "Electron-phonon coupling lambda must be non-negative (got {:.6e}).",
+            lambda
+        );
     }
     let n_conv_est = (lambda.powf(2.2) * 3.0).round() as usize;
     if n_conv_est >= FC_MAX_N {
@@ -139,7 +177,9 @@ pub fn simulate_iv(
     }
 
     let mut fc_template = FCCache::new(lambda);
-    let precompute_bound = ((lambda.powf(2.2) * 3.0).round() as usize + 50).max(n).min(FC_MAX_N);
+    let precompute_bound = ((lambda.powf(2.2) * 3.0).round() as usize + 50)
+        .max(n)
+        .min(FC_MAX_N);
     fc_template.precompute(precompute_bound);
 
     if verbose {
@@ -158,11 +198,33 @@ pub fn simulate_iv(
             let mut store = RateStore::new(n);
 
             calculate_all_rate_w(
-                &mut store, n, vmode, alpha_l, alpha_r, lambda, v, t, eta, 1, vg, &fc_template,
+                &mut store,
+                n,
+                vmode,
+                alpha_l,
+                alpha_r,
+                lambda,
+                v,
+                t,
+                eta,
+                1,
+                vg,
+                &fc_template,
                 Some(&dtable),
             );
             calculate_all_rate_w(
-                &mut store, n, vmode, alpha_l, alpha_r, lambda, v, t, eta, -1, vg, &fc_template,
+                &mut store,
+                n,
+                vmode,
+                alpha_l,
+                alpha_r,
+                lambda,
+                v,
+                t,
+                eta,
+                -1,
+                vg,
+                &fc_template,
                 Some(&dtable),
             );
 

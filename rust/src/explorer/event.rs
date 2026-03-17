@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use ratatui::crossterm::event::{self, KeyCode, KeyModifiers};
 
-use super::export;
+use super::{export, session};
 use super::{App, AppMode};
 
 pub(crate) fn handle_key(app: &mut App, key: event::KeyEvent) {
@@ -194,6 +194,15 @@ pub(crate) fn handle_key(app: &mut App, key: event::KeyEvent) {
         }
         KeyCode::Char('d') | KeyCode::Char('D') => {
             app.display_mode = app.display_mode.next();
+        }
+        KeyCode::Char('s') | KeyCode::Char('S') => {
+            if !app.compute_running {
+                let path = app.session_path.clone();
+                match session::save_session(app, &path) {
+                    Ok(p) => app.status_msg = Some((format!("Saved: {}", p), false)),
+                    Err(e) => app.status_msg = Some((format!("Save failed: {}", e), true)),
+                }
+            }
         }
         KeyCode::Char('e') | KeyCode::Char('E') => {
             if !app.compute_running {

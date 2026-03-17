@@ -919,14 +919,14 @@ fn render_help(frame: &mut Frame, area: Rect, app: &App) {
     let help = if app.compute_running {
         " Esc Cancel | q Quit "
     } else if app.cursor_mode && app.mode != AppMode::IVCurve {
-        " Arrows Move | h Profile | v H/V cut | d Display | c Exit cursor | e Csv | p Plot | Esc Back | q Quit "
+        " Arrows Move | h Profile | v H/V cut | d Display | c Exit cursor | e Csv | p Plot | s Save | q Quit "
     } else {
         match app.mode {
             AppMode::IVCurve => {
-                " Up/Dn Select | Lt/Rt Adj (Shift=fine) auto | d I/G/IETS/nIETS | Tab Mode | e Export | p Plot | q Quit "
+                " Up/Dn Select | Lt/Rt Adj (Shift=fine) auto | d I/G/IETS/nIETS | Tab Mode | e Csv | p Plot | s Save | q Quit "
             }
             _ => {
-                " Up/Dn Select | Lt/Rt Adj | Enter Run | d Display | [/] Range | g/G Gamma | a Auto | c Cursor | Tab | e Export | p Plot | q Quit "
+                " Up/Dn Select | Lt/Rt Adj | Enter Run | d Display | [/] Range | g/G Gamma | a Auto | c Cursor | Tab | e Csv | p Plot | s Save | q Quit "
             }
         }
     };

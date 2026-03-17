@@ -25,6 +25,7 @@ __pycache__/
 rust/target/
 rust/Cargo.lock
 *_export.csv
+fc_session.json
 
 # C build artifacts
 c/*.o
