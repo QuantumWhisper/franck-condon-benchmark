@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [[bin]]
 name = "rust_explorer"
-path = "src/explorer.rs"
+path = "src/explorer/mod.rs"
 
 [dependencies]
 num-complex = "0.4"
