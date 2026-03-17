@@ -124,10 +124,11 @@ cd rust
 cargo run --release --bin rust_explorer
 ```
 
-A terminal UI for real-time parameter exploration with two modes:
+A terminal UI for real-time parameter exploration with three modes:
 
 - **I-V Curve**: adjust parameters with arrow keys and see the I-V curve update automatically (300ms debounce). Three curves: I_tol (green), I_seq (yellow), I_cot (cyan) rendered with Braille markers.
 - **Stability Diagram**: 2D color map of |I(Vg, Vsd)| with Viridis colormap, log-scale colorbar, axis labels, and a progress bar. FCCache and DigammaTable are shared across all Vg points for efficiency.
+- **Temperature Diagram**: 2D color map of |I(T, Vsd)| — sweeps temperature (1–50 K default) on the x-axis and bias voltage on the y-axis. Viridis colormap with log-scale colorbar. Useful for visualizing how the Franck-Condon blockade evolves with temperature.
 
 Keybindings: `↑↓` select parameter, `←→` adjust (Shift=fine), `Enter` run, `Tab` switch mode, `e` export CSV, `Esc` cancel, `q` quit.
 

@@ -453,12 +453,13 @@ The Rust crate includes a second binary target (`rust_explorer`) — a terminal 
 - Background computation via `std::thread::spawn` + `mpsc::channel` for non-blocking UI
 - FCCache and DigammaTable created once per stability diagram run, shared across all Vg iterations via `simulate_iv_with_cache()`
 
-**Two modes:**
+**Three modes:**
 
 | Mode | Description | Computation | Update |
 |------|-------------|-------------|--------|
 | I-V Curve | Chart widget with 3 Braille-line datasets (I_tol, I_seq, I_cot) | Single `simulate_iv_with_cache` call (~0.3s at N=6) | Auto-recompute on parameter change (300ms debounce) |
-| Stability Diagram | Half-block heatmap with Viridis colormap, axis labels, log-scale colorbar | Loop over Vg values, each row sent via channel for progressive rendering | Manual (Enter to start, Esc to cancel) |
+| Stability Diagram | Half-block heatmap of I(Vg, Vsd) with Viridis colormap, axis labels, log-scale colorbar | Loop over Vg values, each row sent via channel for progressive rendering | Manual (Enter to start, Esc to cancel) |
+| Temperature Diagram | Half-block heatmap of I(T, Vsd) with Viridis colormap, T on x-axis, Vsd on y-axis, log-scale colorbar | Loop over T values (1–50 K default), FCCache and DigammaTable shared across all T points | Manual (Enter to start, Esc to cancel) |
 
 **Key implementation details:**
 - `Heatmap` custom Widget: renders `data[vg_idx][vsd_idx]` as half-block characters (`▀`) with per-cell fg/bg colors for 2× vertical resolution. Log-scale normalization.

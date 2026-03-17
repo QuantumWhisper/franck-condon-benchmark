@@ -58,6 +58,7 @@ fn viridis(t: f64) -> Color {
 enum AppMode {
     IVCurve,
     Stability,
+    Temperature,
 }
 
 impl AppMode {
@@ -65,6 +66,7 @@ impl AppMode {
         match self {
             Self::IVCurve => "I-V Curve",
             Self::Stability => "Stability Diagram",
+            Self::Temperature => "Temperature Diagram",
         }
     }
 }
@@ -88,6 +90,11 @@ enum ParamId {
     VgMin,
     VgMax,
     NVg,
+    TempVsdMax,
+    TempNVsd,
+    TMin,
+    TMax,
+    NT,
 }
 
 enum ComputeMsg {
@@ -100,6 +107,13 @@ enum ComputeMsg {
         i_tol: Vec<f64>,
     },
     StabilityDone {
+        elapsed: Duration,
+    },
+    TemperatureRow {
+        t_idx: usize,
+        i_tol: Vec<f64>,
+    },
+    TemperatureDone {
         elapsed: Duration,
     },
 }
@@ -144,6 +158,20 @@ struct App {
     stability_progress: (usize, usize),
     stability_elapsed: Option<Duration>,
 
+    // Temperature diagram sweep
+    temp_vsd_max: f64,
+    temp_n_vsd: usize,
+    t_min: f64,
+    t_max: f64,
+    n_t: usize,
+
+    // Temperature diagram results
+    temperature_grid: Vec<Vec<f64>>,
+    temperature_t_vals: Vec<f64>,
+    temperature_vsd_vals: Vec<f64>,
+    temperature_progress: (usize, usize),
+    temperature_elapsed: Option<Duration>,
+
     // background computation
     compute_start: Instant,
     compute_running: bool,
@@ -185,6 +213,16 @@ impl App {
             stability_vsd_vals: Vec::new(),
             stability_progress: (0, 0),
             stability_elapsed: None,
+            temp_vsd_max: 0.6,
+            temp_n_vsd: 101,
+            t_min: 1.0,
+            t_max: 50.0,
+            n_t: 50,
+            temperature_grid: Vec::new(),
+            temperature_t_vals: Vec::new(),
+            temperature_vsd_vals: Vec::new(),
+            temperature_progress: (0, 0),
+            temperature_elapsed: None,
             compute_start: Instant::now(),
             compute_running: false,
             compute_rx: rx,
@@ -226,6 +264,21 @@ impl App {
                 ParamId::VgMax,
                 ParamId::NVg,
             ],
+            AppMode::Temperature => vec![
+                ParamId::N,
+                ParamId::Lambda,
+                ParamId::Vmode,
+                ParamId::AlphaL,
+                ParamId::AlphaR,
+                ParamId::Eta,
+                ParamId::Vg,
+                ParamId::Tau,
+                ParamId::TempVsdMax,
+                ParamId::TempNVsd,
+                ParamId::TMin,
+                ParamId::TMax,
+                ParamId::NT,
+            ],
         }
     }
 
@@ -255,6 +308,11 @@ impl App {
             ParamId::VgMin => ("Vg min", format!("{:.3}", self.vg_min)),
             ParamId::VgMax => ("Vg max", format!("{:.3}", self.vg_max)),
             ParamId::NVg => ("# Vg", format!("{}", self.n_vg)),
+            ParamId::TempVsdMax => ("Vsd max", format!("{:.3}", self.temp_vsd_max)),
+            ParamId::TempNVsd => ("# Vsd", format!("{}", self.temp_n_vsd)),
+            ParamId::TMin => ("T min (K)", format!("{:.1}", self.t_min)),
+            ParamId::TMax => ("T max (K)", format!("{:.1}", self.t_max)),
+            ParamId::NT => ("# T", format!("{}", self.n_t)),
         }
     }
 
@@ -341,6 +399,26 @@ impl App {
                 let step = if fine { 1 } else { 10 };
                 self.n_vg = (self.n_vg as i32 + dir * step).clamp(10, 501) as usize;
             }
+            ParamId::TempVsdMax => {
+                let s = if fine { 0.01 } else { 0.1 };
+                self.temp_vsd_max = (self.temp_vsd_max + d * s).max(0.05);
+            }
+            ParamId::TempNVsd => {
+                let step = if fine { 1 } else { 10 };
+                self.temp_n_vsd = (self.temp_n_vsd as i32 + dir * step).clamp(10, 501) as usize;
+            }
+            ParamId::TMin => {
+                let s = if fine { 0.1 } else { 1.0 };
+                self.t_min = (self.t_min + d * s).max(0.1);
+            }
+            ParamId::TMax => {
+                let s = if fine { 0.1 } else { 5.0 };
+                self.t_max = (self.t_max + d * s).max(0.5);
+            }
+            ParamId::NT => {
+                let step = if fine { 1 } else { 10 };
+                self.n_t = (self.n_t as i32 + dir * step).clamp(5, 501) as usize;
+            }
         }
     }
 
@@ -406,16 +484,15 @@ impl App {
             let start = Instant::now();
 
             let n_pts = ((vsd_max - vsd_min) / vsd_step).round() as usize + 1;
-            let vsd_vec: Vec<f64> = (0..n_pts)
-                .map(|i| vsd_min + i as f64 * vsd_step)
-                .collect();
+            let vsd_vec: Vec<f64> = (0..n_pts).map(|i| vsd_min + i as f64 * vsd_step).collect();
 
             let mut fc = FCCache::new(lambda);
             fc.precompute(bound);
             let dtable = DigammaTable::new();
 
-            let result =
-                simulate_iv_with_cache(n, vmode, al, ar, lambda, &vsd_vec, t, eta, vg, tau, &fc, &dtable);
+            let result = simulate_iv_with_cache(
+                n, vmode, al, ar, lambda, &vsd_vec, t, eta, vg, tau, &fc, &dtable,
+            );
 
             let elapsed = start.elapsed();
             tx.send(ComputeMsg::IVDone { result, elapsed }).ok();
@@ -440,14 +517,11 @@ impl App {
 
         let vg_vals: Vec<f64> = (0..self.n_vg)
             .map(|i| {
-                self.vg_min
-                    + i as f64 * (self.vg_max - self.vg_min) / (self.n_vg - 1).max(1) as f64
+                self.vg_min + i as f64 * (self.vg_max - self.vg_min) / (self.n_vg - 1).max(1) as f64
             })
             .collect();
         let vsd_vals: Vec<f64> = (0..self.n_vsd)
-            .map(|i| {
-                i as f64 * self.stab_vsd_max / (self.n_vsd - 1).max(1) as f64
-            })
+            .map(|i| i as f64 * self.stab_vsd_max / (self.n_vsd - 1).max(1) as f64)
             .collect();
 
         self.stability_grid = vec![Vec::new(); vg_vals.len()];
@@ -498,6 +572,87 @@ impl App {
         });
     }
 
+    fn start_temperature(&mut self) {
+        if self.compute_running {
+            return;
+        }
+        if self.t_min <= 0.0 {
+            self.status_msg = Some(("T min must be > 0".into(), true));
+            return;
+        }
+        if self.t_min >= self.t_max {
+            self.status_msg = Some(("T min must be < T max".into(), true));
+            return;
+        }
+        if let Err(e) = self.validate() {
+            self.status_msg = Some((e, true));
+            return;
+        }
+        self.status_msg = None;
+
+        let (tx, rx) = mpsc::channel();
+        self.compute_rx = rx;
+        self.cancel_flag = Arc::new(AtomicBool::new(false));
+        self.compute_start = Instant::now();
+        self.compute_running = true;
+
+        let t_vals: Vec<f64> = (0..self.n_t)
+            .map(|i| {
+                self.t_min + i as f64 * (self.t_max - self.t_min) / (self.n_t - 1).max(1) as f64
+            })
+            .collect();
+        let vsd_vals: Vec<f64> = (0..self.temp_n_vsd)
+            .map(|i| i as f64 * self.temp_vsd_max / (self.temp_n_vsd - 1).max(1) as f64)
+            .collect();
+
+        self.temperature_grid = vec![Vec::new(); t_vals.len()];
+        self.temperature_t_vals = t_vals.clone();
+        self.temperature_vsd_vals = vsd_vals.clone();
+        self.temperature_progress = (0, t_vals.len());
+        self.temperature_elapsed = None;
+
+        let n = self.n;
+        let vmode = self.vmode;
+        let al = self.alpha_l;
+        let ar = self.alpha_r;
+        let lambda = self.lambda;
+        let eta = self.eta;
+        let vg = self.vg;
+        let tau = self.tau;
+        let cancel = self.cancel_flag.clone();
+        let bound = self.fc_precompute_bound();
+
+        thread::spawn(move || {
+            let start = Instant::now();
+
+            let mut fc = FCCache::new(lambda);
+            fc.precompute(bound);
+            let dtable = DigammaTable::new();
+
+            for (i, &t) in t_vals.iter().enumerate() {
+                if cancel.load(Ordering::Relaxed) {
+                    break;
+                }
+                let result = simulate_iv_with_cache(
+                    n, vmode, al, ar, lambda, &vsd_vals, t, eta, vg, tau, &fc, &dtable,
+                );
+                if tx
+                    .send(ComputeMsg::TemperatureRow {
+                        t_idx: i,
+                        i_tol: result.i_tol,
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            tx.send(ComputeMsg::TemperatureDone {
+                elapsed: start.elapsed(),
+            })
+            .ok();
+        });
+    }
+
     fn cancel_compute(&mut self) {
         self.cancel_flag.store(true, Ordering::Relaxed);
         self.compute_running = false;
@@ -507,7 +662,8 @@ impl App {
         while let Ok(msg) = self.compute_rx.try_recv() {
             match msg {
                 ComputeMsg::IVDone { result, elapsed } => {
-                    self.status_msg = Some((format!("Done ({:.2}s)", elapsed.as_secs_f64()), false));
+                    self.status_msg =
+                        Some((format!("Done ({:.2}s)", elapsed.as_secs_f64()), false));
                     self.iv_data = Some((result, elapsed));
                     self.compute_running = false;
                 }
@@ -521,6 +677,18 @@ impl App {
                     self.status_msg =
                         Some((format!("Done ({:.1}s)", elapsed.as_secs_f64()), false));
                     self.stability_elapsed = Some(elapsed);
+                    self.compute_running = false;
+                }
+                ComputeMsg::TemperatureRow { t_idx, i_tol } => {
+                    if t_idx < self.temperature_grid.len() {
+                        self.temperature_grid[t_idx] = i_tol;
+                        self.temperature_progress.0 = t_idx + 1;
+                    }
+                }
+                ComputeMsg::TemperatureDone { elapsed } => {
+                    self.status_msg =
+                        Some((format!("Done ({:.1}s)", elapsed.as_secs_f64()), false));
+                    self.temperature_elapsed = Some(elapsed);
                     self.compute_running = false;
                 }
             }
@@ -544,7 +712,11 @@ impl App {
             }
             for (j, &vsd) in self.stability_vsd_vals.iter().enumerate() {
                 if j < self.stability_grid[i].len() {
-                    writeln!(f, "{:.6e},{:.6e},{:.6e}", vg, vsd, self.stability_grid[i][j])?;
+                    writeln!(
+                        f,
+                        "{:.6e},{:.6e},{:.6e}",
+                        vg, vsd, self.stability_grid[i][j]
+                    )?;
                 }
             }
         }
@@ -568,6 +740,27 @@ impl App {
             Err(io::Error::new(io::ErrorKind::Other, "No I-V data"))
         }
     }
+
+    fn export_temperature(&self) -> io::Result<String> {
+        let filename = "temperature_export.csv";
+        let mut f = std::fs::File::create(filename)?;
+        writeln!(f, "T_K,Vsd_V,I_tol_A")?;
+        for (i, &t) in self.temperature_t_vals.iter().enumerate() {
+            if i >= self.temperature_grid.len() || self.temperature_grid[i].is_empty() {
+                continue;
+            }
+            for (j, &vsd) in self.temperature_vsd_vals.iter().enumerate() {
+                if j < self.temperature_grid[i].len() {
+                    writeln!(
+                        f,
+                        "{:.6e},{:.6e},{:.6e}",
+                        t, vsd, self.temperature_grid[i][j]
+                    )?;
+                }
+            }
+        }
+        Ok(filename.into())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -587,6 +780,7 @@ fn render(frame: &mut Frame, app: &App) {
     match app.mode {
         AppMode::IVCurve => render_iv_chart(frame, plot_area, app),
         AppMode::Stability => render_stability(frame, plot_area, app),
+        AppMode::Temperature => render_temperature(frame, plot_area, app),
     }
 
     render_help(frame, help_area, app);
@@ -614,9 +808,7 @@ fn render_params(frame: &mut Frame, area: Rect, app: &App) {
 
         let prefix = if selected { " > " } else { "   " };
         let style = if selected {
-            Style::new()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
+            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)
         } else {
             Style::new().fg(Color::Gray)
         };
@@ -644,10 +836,7 @@ fn render_params(frame: &mut Frame, area: Rect, app: &App) {
             let c = if is_err { Color::Red } else { Color::Green };
             (format!("  {}", msg), Style::new().fg(c))
         } else {
-            (
-                "  Press Enter".into(),
-                Style::new().fg(Color::DarkGray),
-            )
+            ("  Press Enter".into(), Style::new().fg(Color::DarkGray))
         };
 
         frame.render_widget(Paragraph::new(text).style(style), status_area);
@@ -942,6 +1131,185 @@ fn render_stability(frame: &mut Frame, area: Rect, app: &App) {
     }
 }
 
+fn render_temperature(frame: &mut Frame, area: Rect, app: &App) {
+    let title = format!(
+        " Temperature  N={}  l={:.1}  Vg={:.3}V ",
+        app.n, app.lambda, app.vg
+    );
+
+    let prog_h = if app.compute_running || app.temperature_progress.1 > 0 {
+        3u16
+    } else {
+        0
+    };
+    let [map_area, progress_area] =
+        Layout::vertical([Constraint::Fill(1), Constraint::Length(prog_h)]).areas(area);
+
+    let block = Block::bordered().title(Line::from(title).centered());
+    let has_data = app.temperature_grid.iter().any(|r| !r.is_empty());
+
+    if has_data {
+        let inner = block.inner(map_area);
+        frame.render_widget(block, map_area);
+
+        let mut log_min = f64::INFINITY;
+        let mut log_max = f64::NEG_INFINITY;
+        for row in &app.temperature_grid {
+            for &val in row {
+                let lv = val.abs().max(1e-30).log10();
+                if lv.is_finite() {
+                    log_min = log_min.min(lv);
+                    log_max = log_max.max(lv);
+                }
+            }
+        }
+        if !log_min.is_finite() {
+            log_min = -30.0;
+        }
+        if !log_max.is_finite() {
+            log_max = -20.0;
+        }
+
+        let [content_area, xlabel_row] =
+            Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(inner);
+
+        let [ylabel_area, heatmap_area, cbar_strip] = Layout::horizontal([
+            Constraint::Length(6),
+            Constraint::Fill(1),
+            Constraint::Length(9),
+        ])
+        .areas(content_area);
+
+        let [colorbar_area, cblabel_area] =
+            Layout::horizontal([Constraint::Length(2), Constraint::Fill(1)]).areas(cbar_strip);
+
+        frame.render_widget(
+            Heatmap {
+                data: &app.temperature_grid,
+                log_min,
+                log_max,
+            },
+            heatmap_area,
+        );
+
+        frame.render_widget(Colorbar, colorbar_area);
+
+        let vsd_max_val = app
+            .temperature_vsd_vals
+            .last()
+            .copied()
+            .unwrap_or(app.temp_vsd_max);
+        let label_style = Style::new().fg(Color::Gray);
+
+        if ylabel_area.height >= 3 {
+            let lw = ylabel_area.width.saturating_sub(1);
+            let top_r = Rect::new(ylabel_area.x, ylabel_area.y, lw, 1);
+            let mid_r = Rect::new(ylabel_area.x, ylabel_area.y + ylabel_area.height / 2, lw, 1);
+            let bot_r = Rect::new(ylabel_area.x, ylabel_area.bottom() - 1, lw, 1);
+            frame.render_widget(
+                Paragraph::new(format!("{:.2}", vsd_max_val))
+                    .style(label_style)
+                    .alignment(Alignment::Right),
+                top_r,
+            );
+            frame.render_widget(
+                Paragraph::new(format!("{:.2}", vsd_max_val / 2.0))
+                    .style(label_style)
+                    .alignment(Alignment::Right),
+                mid_r,
+            );
+            frame.render_widget(
+                Paragraph::new("0.00".to_string())
+                    .style(label_style)
+                    .alignment(Alignment::Right),
+                bot_r,
+            );
+        }
+
+        let t_lo = app.temperature_t_vals.first().copied().unwrap_or(app.t_min);
+        let t_hi = app.temperature_t_vals.last().copied().unwrap_or(app.t_max);
+        let t_mid = (t_lo + t_hi) / 2.0;
+        let xl = Rect::new(heatmap_area.x, xlabel_row.y, heatmap_area.width, 1);
+
+        if xl.width >= 20 {
+            let s_left = format!("{:.1}K", t_lo);
+            let s_mid = format!("{:.1}K", t_mid);
+            let s_right = format!("{:.1}K", t_hi);
+
+            let left_r = Rect::new(xl.x, xl.y, s_left.len() as u16, 1);
+            frame.render_widget(Paragraph::new(s_left).style(label_style), left_r);
+
+            let mid_w = s_mid.len() as u16;
+            let mid_x = xl.x + xl.width / 2 - mid_w / 2;
+            frame.render_widget(
+                Paragraph::new(s_mid).style(label_style),
+                Rect::new(mid_x, xl.y, mid_w, 1),
+            );
+
+            let right_w = s_right.len() as u16;
+            frame.render_widget(
+                Paragraph::new(s_right)
+                    .style(label_style)
+                    .alignment(Alignment::Right),
+                Rect::new(xl.right().saturating_sub(right_w), xl.y, right_w, 1),
+            );
+        }
+
+        if cblabel_area.height >= 2 {
+            let cb_top = Rect::new(cblabel_area.x, cblabel_area.y, cblabel_area.width, 1);
+            let cb_bot = Rect::new(
+                cblabel_area.x,
+                cblabel_area.bottom().saturating_sub(1),
+                cblabel_area.width,
+                1,
+            );
+            frame.render_widget(
+                Paragraph::new(format!("{:.0}", log_max)).style(label_style),
+                cb_top,
+            );
+            frame.render_widget(
+                Paragraph::new(format!("{:.0}", log_min)).style(label_style),
+                cb_bot,
+            );
+            if cblabel_area.height >= 4 {
+                let cb_title = Rect::new(cblabel_area.x, cblabel_area.y + 1, cblabel_area.width, 1);
+                frame.render_widget(
+                    Paragraph::new("lg|I|").style(Style::new().fg(Color::DarkGray)),
+                    cb_title,
+                );
+            }
+        }
+    } else {
+        let msg = if app.compute_running {
+            "Computing temperature diagram..."
+        } else {
+            "Press Enter to compute temperature diagram"
+        };
+        frame.render_widget(
+            Paragraph::new(msg)
+                .block(block)
+                .style(Style::default().fg(Color::DarkGray)),
+            map_area,
+        );
+    }
+
+    if prog_h > 0 {
+        let (done, total) = app.temperature_progress;
+        let ratio = if total > 0 {
+            done as f64 / total as f64
+        } else {
+            0.0
+        };
+        let label = format!("{}/{} ({:.0}%)", done, total, ratio * 100.0);
+        let gauge = Gauge::default()
+            .block(Block::bordered().title("Progress"))
+            .gauge_style(Style::default().fg(Color::Cyan))
+            .ratio(ratio.clamp(0.0, 1.0))
+            .label(label);
+        frame.render_widget(gauge, progress_area);
+    }
+}
+
 fn render_help(frame: &mut Frame, area: Rect, app: &App) {
     let help = if app.compute_running {
         " Esc Cancel | q Quit "
@@ -951,6 +1319,9 @@ fn render_help(frame: &mut Frame, area: Rect, app: &App) {
                 " Up/Dn Select | Lt/Rt Adjust (Shift=fine) auto-recompute | Tab Mode | e Export | q Quit "
             }
             AppMode::Stability => {
+                " Up/Dn Select | Lt/Rt Adjust | Enter Run | Tab Mode | e Export | q Quit "
+            }
+            AppMode::Temperature => {
                 " Up/Dn Select | Lt/Rt Adjust | Enter Run | Tab Mode | e Export | q Quit "
             }
         }
@@ -1096,7 +1467,8 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
             if !app.compute_running {
                 app.mode = match app.mode {
                     AppMode::IVCurve => AppMode::Stability,
-                    AppMode::Stability => AppMode::IVCurve,
+                    AppMode::Stability => AppMode::Temperature,
+                    AppMode::Temperature => AppMode::IVCurve,
                 };
                 app.selected_param = 0;
                 app.iv_recompute_at = None;
@@ -1114,7 +1486,9 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
             }
         }
         KeyCode::Right | KeyCode::Left => {
-            if app.mode == AppMode::Stability && app.compute_running {
+            if (app.mode == AppMode::Stability || app.mode == AppMode::Temperature)
+                && app.compute_running
+            {
                 return;
             }
             let params = app.visible_params();
@@ -1136,6 +1510,7 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                 match app.mode {
                     AppMode::IVCurve => app.start_iv(),
                     AppMode::Stability => app.start_stability(),
+                    AppMode::Temperature => app.start_temperature(),
                 }
             }
         }
@@ -1144,6 +1519,7 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
                 let result = match app.mode {
                     AppMode::Stability => app.export_stability(),
                     AppMode::IVCurve => app.export_iv(),
+                    AppMode::Temperature => app.export_temperature(),
                 };
                 match result {
                     Ok(path) => app.status_msg = Some((format!("Exported: {}", path), false)),
