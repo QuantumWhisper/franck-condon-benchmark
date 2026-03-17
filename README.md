@@ -130,7 +130,9 @@ A terminal UI for real-time parameter exploration with three modes:
 - **Stability Diagram**: 2D color map of |I(Vg, Vsd)| with Viridis colormap, log-scale colorbar, axis labels, and a progress bar. FCCache and DigammaTable are shared across all Vg points for efficiency.
 - **Temperature Diagram**: 2D color map of |I(T, Vsd)| — sweeps temperature (1–50 K default) on the x-axis and bias voltage on the y-axis. Viridis colormap with log-scale colorbar. Useful for visualizing how the Franck-Condon blockade evolves with temperature.
 
-Keybindings: `↑↓` select parameter, `←→` adjust (Shift=fine), `Enter` run, `Tab` switch mode, `e` export CSV, `Esc` cancel, `q` quit.
+Each mode supports four display types, cycled with `d`: **Current** (I), **Conductance** (dI/dV), **IETS** (d²I/dV²), and **Normalized IETS** ((d²I/dV²)/(dI/dV)). IETS uses 3-point central finite differences; normalized IETS divides by conductance with safe zero-guard.
+
+Keybindings: `↑↓` select parameter, `←→` adjust (Shift=fine), `d` cycle display (I → G → IETS → nIETS), `Enter` run, `Tab` switch mode, `e` export CSV, `Esc` cancel, `q` quit.
 
 ## Quick Start (Fortran)
 

@@ -461,15 +461,28 @@ The Rust crate includes a second binary target (`rust_explorer`) — a terminal 
 | Stability Diagram | Half-block heatmap of I(Vg, Vsd) with Viridis colormap, axis labels, log-scale colorbar | Loop over Vg values, each row sent via channel for progressive rendering | Manual (Enter to start, Esc to cancel) |
 | Temperature Diagram | Half-block heatmap of I(T, Vsd) with Viridis colormap, T on x-axis, Vsd on y-axis, log-scale colorbar | Loop over T values (1–50 K default), FCCache and DigammaTable shared across all T points | Manual (Enter to start, Esc to cancel) |
 
+**Display modes** (cycle with `d` key):
+
+| Display | I-V Chart | Heatmaps | Units |
+|---------|-----------|----------|-------|
+| Current (I) | 3 line plots: I_tol, I_seq, I_cot | log\|I\| heatmap | A |
+| Conductance (G) | dI/dV for all 3 components | log\|G\| heatmap | S |
+| IETS (d²I/dV²) | d²I/dV² for all 3 components | log\|d²I\| heatmap | S/V |
+| Normalized IETS | (d²I/dV²)/(dI/dV) for all 3 | log\|nIETS\| heatmap | 1/V |
+
+IETS computation uses 3-point central finite differences for d²I/dV² (exact for uniform grids, handles non-uniform). Normalized IETS divides by dI/dV with a 1e-30 threshold to guard against division by zero in the Franck-Condon blockade regime.
+
 **Key implementation details:**
+- `DisplayMode` enum (`Current`, `Conductance`, `Iets`, `NormalizedIets`) with `transform()` and `transform_grid()` methods that apply the appropriate derivative operation.
 - `Heatmap` custom Widget: renders `data[vg_idx][vsd_idx]` as half-block characters (`▀`) with per-cell fg/bg colors for 2× vertical resolution. Log-scale normalization.
-- `Colorbar` Widget: vertical Viridis gradient strip with `lg|I|` label and numeric bounds.
+- `Colorbar` Widget: vertical Viridis gradient strip with context-dependent label (lg|I|, lg|G|, lg|d²I|, lg|nI|) and numeric bounds.
 - Auto-recompute: `iv_recompute_at: Option<Instant>` debounce timer, set 300ms after each parameter change in I-V mode. Checked in `poll_messages()`. Parameters adjustable even while computing.
 - Stability mode blocks parameter adjustment during computation (too expensive to auto-recompute).
-- CSV export: `e` key exports `iv_export.csv` or `stability_export.csv`.
+- CSV export: `e` key exports with display-mode-appropriate filename and headers (e.g., `iv_iets_export.csv`, `stability_niets_export.csv`).
 
 **Keybindings:**
 - `↑↓` navigate parameters, `←→` adjust (Shift=fine step)
+- `d` cycle display mode: I → G → IETS → nIETS → I
 - `Enter` trigger computation / cancel running computation
 - `Tab` switch mode, `e` export CSV, `Esc` cancel, `q` quit
 
