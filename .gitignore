@@ -32,6 +32,14 @@ c/*.o
 c/src/*.o
 c/c_benchmark
 
+# C++ build artifacts
+cpp/build/
+
+# Fortran build artifacts
+fortran/*.o
+fortran/src/*.o
+fortran/fortran_benchmark
+
 # Editor
 *.swp
 *~
