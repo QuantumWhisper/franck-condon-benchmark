@@ -52,6 +52,10 @@ The simulation computes I-V curves by solving quantum master equations that incl
 │   ├── main.f90     # Benchmark runner
 │   └── Makefile     # Build for macOS + Linux
 ├── rust/            # Rust implementation ✅ + interactive explorer
+├── cpp/             # C++ implementation ✅
+│   ├── src/         # Core simulation modules (14 .hpp/.cpp files)
+│   ├── CMakeLists.txt # CMake build system
+│   └── build/       # Build directory
 ├── benchmark/
 │   ├── spec/        # Benchmark parameters (quick + default)
 │   └── results/     # Outputs: JSON, CSV, PDF, PNG per language
@@ -137,6 +141,20 @@ Sessions can be saved (`s` key) and resumed later (`--load`), preserving all par
 
 Keybindings: `↑↓` select parameter, `←→` adjust (Shift=fine), `d` cycle display (I → G → IETS → nIETS), `Enter` run, `Tab` switch mode, `e` export CSV, `s` save session, `p` plot, `Esc` cancel, `q` quit.
 
+## Quick Start (C++)
+
+```bash
+cd cpp
+brew install eigen nlohmann-json libomp gnuplot   # macOS
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./build/cpp_benchmark quick     # Fast validation (N=6, ~1.2 seconds)
+./build/cpp_benchmark default   # Full benchmark (N=15)
+./build/cpp_benchmark           # Same as 'default'
+```
+
+Modern C++17 implementation with no C library dependencies. Uses Eigen (header-only) for QR decomposition, nlohmann/json (header-only) for JSON I/O, custom asymptotic series for complex digamma/trigamma, and OpenMP for parallel bias-point computation. Uses gnuplot for PDF/PNG plots.
+
 ## Quick Start (Fortran)
 
 ```bash
@@ -165,10 +183,11 @@ Each run produces four files in `benchmark/results/`:
 | Python | 11 s | — | **169x** |
 | Julia | 5.2 s | — | **358x** |
 | C (GSL) | 2.3 s | — | **809x** |
+| C++ | 1.2 s | — | **1598x** |
 | Fortran | 1.6 s | — | **1153x** |
 | Rust | 0.28 s | — | **6638x** |
 
-*Quick spec on Apple Silicon. All ports replace MATLAB's symbolic digamma bottleneck with native complex implementations. Rust achieves top speed via Rayon parallel bias-point computation, optimized pure Rust digamma (10-term Bernoulli, pre-computed coefficients, multiply-instead-of-divide), factored precomputation in regularized integrals (O(N) instead of O(N²) calls), and aggressive #[inline] + LTO. Fortran uses the same Rust-derived digamma algorithm with -O3 -march=native -flto.*
+*Quick spec on Apple Silicon. All ports replace MATLAB's symbolic digamma bottleneck with native complex implementations. Rust achieves top speed via Rayon parallel bias-point computation, optimized pure Rust digamma (10-term Bernoulli, pre-computed coefficients, multiply-instead-of-divide), factored precomputation in regularized integrals (O(N) instead of O(N²) calls), and aggressive #[inline] + LTO. C++ uses Eigen for QR, nlohmann/json for I/O, and OpenMP for parallel bias-point computation. Fortran uses the same Rust-derived digamma algorithm with -O3 -march=native -flto.*
 
 ## Language Status
 
@@ -178,6 +197,7 @@ Each run produces four files in `benchmark/results/`:
 | Julia | ✅ Complete | 358x faster (quick spec) |
 | Python (Numba) | ✅ Complete | 169x faster (quick spec) |
 | C (GSL) | ✅ Complete | 809x faster (quick spec) |
+| C++ | ✅ Complete | 1598x faster (quick spec) |
 | Rust | ✅ Complete | 6638x faster (quick spec) |
 | Fortran | ✅ Complete | 1153x faster (quick spec) |
 

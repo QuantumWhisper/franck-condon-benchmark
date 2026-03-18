@@ -575,3 +575,59 @@ The Fortran port matches MATLAB to **7.65e-5 max relative error** at 199 of 201 
 - **Module compilation order matters**: Fortran modules must be compiled in dependency order. The Makefile lists sources in topological order.
 - **`implicit none` everywhere**: Catches typos that would silently create new variables in classic Fortran.
 - **Argument declaration ordering**: In Fortran, dummy arguments used as array dimensions must be declared before the arrays that use them (e.g., `integer, intent(in) :: nVsd` before `real(8), intent(in) :: Vsd(nVsd)`).
+
+## C++ Implementation (cpp/src/)
+
+The C++ port follows the C port structure using modern C++17 idioms. No GSL or C library dependencies — uses Eigen for linear algebra, nlohmann/json for JSON I/O, and OpenMP for parallelism.
+
+### Key Files
+
+| File | C Equivalent | Notes |
+|------|-------------|-------|
+| `constants.hpp` | `constants.h` | `inline constexpr double` instead of `#define` |
+| `laguerre.hpp/.cpp` | `laguerre.c` | Identical three-term recurrence |
+| `fc_matrix.hpp/.cpp` | `fc_matrix.c` | `FCCache` struct with constructor, `bool valid[][]` |
+| `fermi_bose.hpp/.cpp` | `fermi_bose.c` | Identical formulas |
+| `digamma.hpp/.cpp` | `digamma.c` | Pure asymptotic series (no GSL); `std::complex<double>` |
+| `regularized.hpp/.cpp` | `regularized.c` | `std::vector<Complex>` for precomputed digamma values |
+| `cotunneling.hpp/.cpp` | `cotunneling.c` | `std::vector` replaces all `malloc`/`free`; largest module |
+| `rate.hpp/.cpp` | `rate.c` | `RateStore` struct with `std::vector<double>` data member |
+| `matrix.hpp/.cpp` | `matrix.c` | Same index mapping, sigma functions, peq |
+| `solver.hpp/.cpp` | `solver.c` | `Eigen::HouseholderQR` replaces GSL QR |
+| `current.hpp/.cpp` | `current.c` | Same sign conventions: 0→1 R−L, 1→0 L−R, cot RL−LR |
+| `simulate.hpp/.cpp` | `simulate.c` | OpenMP `parallel for schedule(dynamic, 4)` on bias points |
+| `json_io.hpp/.cpp` | `json_io.c` | `nlohmann::json` for parsing; `fprintf` for output (%.17g) |
+| `plotting.hpp/.cpp` | `plotting.c` | Identical gnuplot via `popen()` |
+| `main.cpp` | `main.c` | `std::chrono::steady_clock` timing; 3 runs + median |
+
+### Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Pure C++ digamma (no GSL) | Matches Rust/Fortran approach; eliminates C library dependency |
+| `std::complex<double>` | Direct replacement for C99 `double _Complex`; IEEE 754 compatible |
+| Eigen `HouseholderQR` | Header-only, no link-time deps; ~0.04ms for 30×30 systems |
+| nlohmann/json | Single-header vendor; dramatically simplifies JSON I/O vs cJSON |
+| `std::vector` everywhere | RAII replaces all `malloc`/`free`; no manual memory management |
+| OpenMP `schedule(dynamic, 4)` | Parallel bias-point computation; dynamic for variable-cost cotunneling |
+| `constexpr` Bernoulli coefficients | Compile-time constant arrays; no runtime initialization |
+| `namespace fc { }` | All functions scoped; replaces C's `fc_` prefix convention |
+| CMake build system | Standard C++ tooling; handles Eigen/OpenMP platform detection |
+| `fprintf` for output JSON/CSV | Ensures %.17g precision matches C port output exactly |
+
+### Performance Notes
+
+The C++ port runs the quick spec (N=6) in ~1.2 seconds on Apple Silicon — a **1598x speedup** over MATLAB (1844s), faster than C+GSL (2.3s serial) and Fortran (1.6s serial) due to OpenMP parallelism, but slower than Rust+Rayon (0.28s).
+
+### Numerical Precision Notes
+
+The C++ port matches MATLAB to **7.65e-5 max relative error** at 199 of 201 bias points (quick spec), identical to the C, Rust, and Fortran ports. The 2 outlier points (Vsd ≈ 0.219, 0.585) are the known MATLAB solver artifacts.
+
+### Lessons from the C++ Port
+
+- **No GSL needed**: The pure asymptotic series for digamma/trigamma (20-term and 10-term Bernoulli respectively) matches GSL's accuracy for |z| ≥ 20 and 10.
+- **Eigen is effortless for small systems**: Header-only, ~3 lines for QR solve, no FFI overhead.
+- **`std::complex<double>` works correctly**: On arm64 Apple Clang, no `__muldc3` overhead was observed at `-O3`.
+- **OpenMP on Apple Clang**: Requires `brew install libomp` and explicit CMake configuration (`-Xpreprocessor -fopenmp`). The CMakeLists.txt auto-detects via `brew --prefix libomp`.
+- **nlohmann/json eliminates boilerplate**: The JSON I/O module is ~100 lines shorter than the C port's cJSON equivalent.
+- **RAII eliminates memory bugs**: Zero `malloc`/`free` calls in the entire codebase. `std::vector` handles all dynamic allocation.
