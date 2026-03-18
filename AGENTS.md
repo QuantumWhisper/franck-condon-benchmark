@@ -93,6 +93,33 @@ Each benchmark run produces four outputs in `benchmark/results/`:
 - `{lang}_{spec}_IV.pdf` — publication-quality plot (vector)
 - `{lang}_{spec}_IV.png` — publication-quality plot (300 dpi)
 
+### Default Spec Benchmark Results
+
+Default spec (N=15) results are available for all languages except Python. MATLAB was benchmarked on an Apple M4 Max (14 cores: 4E+10P, 32 GPU cores); all other languages were benchmarked on an Apple M5 (10 cores: 4S+6E, 24 GB).
+
+| Language | Default (N=15) | Speedup vs MATLAB | Hardware |
+|----------|----------------|-------------------|----------|
+| MATLAB | 11725 s (~3.3 hr) | 1× (reference) | M4 Max |
+| Rust | 1.9 s | **6202×** | M5 |
+| C++ | 8.7 s | **1348×** | M5 |
+| Fortran | 12.3 s | **953×** | M5 |
+| C (GSL) | 17.1 s | **685×** | M5 |
+| Julia | 102 s | **115×** | M5 |
+| Python | — | — | too slow for N=15 |
+
+All non-MATLAB ports agree to **<5×10⁻¹³** with each other. Against MATLAB, all match to **6.1×10⁻⁶** (excluding solver artifact points).
+
+### Solver Artifact Points
+
+The rate matrix W becomes ill-conditioned at certain bias points, causing different linear solvers (MATLAB's `lsqlin`, Rust's `nalgebra` QR, GSL QR, Eigen QR, LAPACK LU) to produce different results. These are not bugs — they are intrinsic to the mathematical problem at those specific Vsd values.
+
+| Spec | Artifact Vsd values | Cause |
+|------|---------------------|-------|
+| quick (N=6) | ≈ 0.219, 0.585 | W ill-conditioned near current zero-crossings |
+| default (N=15) | ≈ 0.219, 0.438 | Same phenomenon, different Vsd values due to different N |
+
+At these points, each implementation gives a valid but solver-dependent result. All cross-language error metrics exclude these points. The non-artifact points agree to ~1e-6 vs MATLAB and ~1e-13 between non-MATLAB ports.
+
 ## Julia Implementation (julia/src/)
 
 The Julia port is a 1:1 faithful translation of the MATLAB reference. Every function, formula, and sign convention matches.
@@ -136,7 +163,9 @@ The Julia port matches MATLAB to ~5 significant digits across all 201 bias point
 
 3. **Steady-state sensitivity**: The rate matrix W is ill-conditioned at certain bias points (near current zero-crossings). The condition number σ₁/σ₁₂ can exceed 10¹⁸, amplifying any matrix-element error into the occupation probabilities P.
 
-4. **MATLAB solver artifacts**: At specific bias points (Vsd ≈ 0.219, 0.585), MATLAB's `lsqlin` interior-point produces non-smooth I-V values that appear to be solver-dependent numerical artifacts.
+4. **MATLAB solver artifacts**: At specific bias points (Vsd ≈ 0.219, 0.585 for quick; Vsd ≈ 0.219, 0.438 for default), MATLAB's `lsqlin` interior-point produces non-smooth I-V values that appear to be solver-dependent numerical artifacts.
+
+**Default spec (N=15)**: Julia matches MATLAB to **6.1×10⁻⁶** max relative error (excluding solver artifacts at Vsd ≈ 0.219, 0.438). Julia matches Rust to **5.1×10⁻¹³**. Wall time: **102 s** on Apple M5 (115× vs MATLAB). Compared to the quick spec, the default spec is ~19.5× slower due to the larger state space (2N=30 vs 2N=12) and deeper cotunneling convergence.
 
 **For future porters**: the 1e-10 tolerance target is achievable for the sequential tunneling component alone (which uses simple FC²×fermi), but the cotunneling component inherently amplifies ULP-level differences. A realistic cross-language tolerance is ~1e-5 for the total current.
 
@@ -212,7 +241,7 @@ The Python port matches Julia to **machine precision** (~8e-13 relative error) a
 
 Against MATLAB (excluding artifact points): max relative error = 7.7e-5, consistent with the Julia port's ~1e-5 cross-language tolerance.
 
-Performance: ~11 seconds for quick spec (N=6) on Apple Silicon, a **169x speedup** over MATLAB (1844s) and ~2x slower than Julia (5.2s).
+Performance: ~11 seconds for quick spec (N=6) on Apple Silicon, a **169x speedup** over MATLAB (1844s) and ~2x slower than Julia (5.2s). The default spec (N=15) was not benchmarked — Python's interpreted cotunneling loops scale poorly with N, making the default spec impractically slow on consumer hardware (estimated >30 min per run).
 
 ## C Implementation (c/src/)
 
@@ -280,6 +309,8 @@ Performance history on the same hardware:
 - Hand-written digamma: 428s (4x vs MATLAB)
 - + GSL `gsl_sf_complex_psi_e`: 52s (36x)
 - + factored regularized_I + optimized trigamma: **2.3s (809x)**
+
+**Default spec (N=15)**: **17.1 s** on Apple M5 — a **685× speedup** over MATLAB. Matches MATLAB to **6.1×10⁻⁶** (excluding solver artifacts at Vsd ≈ 0.219, 0.438). Matches Rust to **5.4×10⁻¹³**.
 
 ### Numerical Precision Notes
 
@@ -373,6 +404,8 @@ The performance was achieved through several optimizations:
 Performance history:
 - Initial port (20-term digamma, no inlining): 7.2s (254x vs MATLAB)
 - Optimized (10-term, pre-computed, inlined): **1.5s (1230x vs MATLAB)**
+
+**Default spec (N=15)**: **1.9 s** on Apple M5 — a **6202× speedup** over MATLAB. The fastest implementation across both specs. Matches MATLAB to **6.1×10⁻⁶** (excluding solver artifacts at Vsd ≈ 0.219, 0.438).
 
 ### Numerical Precision Notes
 
@@ -561,6 +594,8 @@ Performance history on the same hardware:
 - Initial port (-O2): 2.1s (878x vs MATLAB)
 - Optimized (-O3 -march=native -flto): **1.6s (1153x vs MATLAB)**
 
+**Default spec (N=15)**: **12.3 s** on Apple M5 — a **953× speedup** over MATLAB. Matches MATLAB to **6.1×10⁻⁶** (excluding solver artifacts at Vsd ≈ 0.219, 0.438). Matches Rust to **4.9×10⁻¹³**.
+
 ### Numerical Precision Notes
 
 The Fortran port matches MATLAB to **7.65e-5 max relative error** at 199 of 201 bias points (quick spec), identical to the C and Rust ports. The 2 outlier points (Vsd ≈ 0.219, 0.585) are the known MATLAB solver artifacts.
@@ -618,6 +653,8 @@ The C++ port follows the C port structure using modern C++17 idioms. No GSL or C
 ### Performance Notes
 
 The C++ port runs the quick spec (N=6) in ~1.2 seconds on Apple Silicon — a **1598x speedup** over MATLAB (1844s), faster than C+GSL (2.3s serial) and Fortran (1.6s serial) due to OpenMP parallelism, but slower than Rust+Rayon (0.28s).
+
+**Default spec (N=15)**: **8.7 s** on Apple M5 — a **1348× speedup** over MATLAB. Matches MATLAB to **6.1×10⁻⁶** (excluding solver artifacts at Vsd ≈ 0.219, 0.438). Matches Rust to **4.9×10⁻¹³**.
 
 ### Numerical Precision Notes
 
