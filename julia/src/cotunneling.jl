@@ -88,7 +88,7 @@ function m_sumMMMMrs(N::Int, q1::Int, q2::Int, lambda::Float64,
 
     target = MMMM .* Irs
     # Zero diagonal
-    for i in 1:nr
+    @inbounds for i in 1:nr
         target[i, i] = 0.0
     end
     return sum(target)
@@ -122,7 +122,7 @@ function m_sumMMMMrs11(N::Int, q1::Int, q2::Int, lambda::Float64,
     Irs = regularized_I(muL, E2, eps1, eps2, T)
 
     target = MMMM .* Irs
-    for i in 1:nr
+    @inbounds for i in 1:nr
         target[i, i] = 0.0
     end
     return sum(target)

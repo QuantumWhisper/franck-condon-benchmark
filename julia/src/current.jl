@@ -4,9 +4,9 @@
 Extract P^n_q from the state vector P.
 Matches MATLAB `psub_` in current_from_rate_equations.m.
 """
-function psub_(P::Vector{Float64}, n::Int, q::Int, N::Int)
+@inline function psub_(P::Vector{Float64}, n::Int, q::Int, N::Int)
     base = n == 0 ? 0 : N
-    return P[q + 1 + base]
+    @inbounds return P[q + 1 + base]
 end
 
 """

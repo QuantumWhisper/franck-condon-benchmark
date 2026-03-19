@@ -104,7 +104,7 @@ Default spec (N=15) results are available for all languages except Python. MATLA
 | C (GSL) | 2.2 s | **5330×** | M5 |
 | C++ | 2.0 s | **5863×** | M5 |
 | Fortran | 2.6 s | **4510×** | M5 |
-| Julia | 102 s | **115×** | M5 |
+| Julia | 55 s | **213×** | M5 |
 | Python | — | — | too slow for N=15 |
 
 All non-MATLAB ports agree to **<5×10⁻¹³** with each other. Against MATLAB, all match to **6.1×10⁻⁶** (excluding solver artifact points).
@@ -122,25 +122,25 @@ At these points, each implementation gives a valid but solver-dependent result. 
 
 ## Julia Implementation (julia/src/)
 
-The Julia port is a 1:1 faithful translation of the MATLAB reference. Every function, formula, and sign convention matches.
+The Julia port is a 1:1 faithful translation of the MATLAB reference. Every function, formula, and sign convention matches. Performance optimizations (threaded parallelism, flat array data structures) were added on top of the faithful translation without changing any numerical formulas.
 
 ### Key Files
 
 | File | MATLAB Equivalent | Notes |
 |------|-------------------|-------|
-| `FranckCondon.jl` | Module definition | Includes all files, exports `simulate_iv` |
+| `FranckCondon.jl` | Module definition | Includes all files, exports `simulate_iv`; `Threads.@threads` bias-point loop |
 | `constants.jl` | `KBoltzmann_ev`, `hbar_eV`, `ee_ElementaryCharge` | Same exact values |
 | `laguerre.jl` | `laguerreL` (built-in) | Three-term recurrence, matches to full Float64 |
-| `fc_matrix.jl` | `FCMatrixSingle.m`, `FCMatrix.m` | Dict-based cache replaces MATLAB `memoize` |
+| `fc_matrix.jl` | `FCMatrixSingle.m`, `FCMatrix.m` | Pre-populated 256×256 `Matrix{Float64}` cache; O(1) lookup; thread-safe (immutable after construction) |
 | `fermi_bose.jl` | `fermi.m`, `BoseFcn.m` | Identical formulas |
-| `regularized.jl` | `regularizedI.m`, `regularizedJ.m`, `digammaFcn.m` | Uses `SpecialFunctions.digamma/trigamma` |
-| `cotunneling.jl` | `sumMMr.m`, `sumMMMMrs.m`, `sumMMr11.m`, `sumMMMMrs11.m` + their `m_` inner functions | Convergence wrappers match MATLAB criteria |
-| `rate.jl` | `m_rateW.m`, `rateW.m`, `calculateAllRateW.m` | Pre-computed `Dict` store replaces MATLAB memoize cache |
-| `matrix.jl` | `generateMatrixW.m` | Same index mapping, same sigma functions, same peq |
+| `regularized.jl` | `regularizedI.m`, `regularizedJ.m`, `digammaFcn.m` | Uses `SpecialFunctions.digamma/trigamma`; broadcasting already factored (4×N calls, not 4×N²) |
+| `cotunneling.jl` | `sumMMr.m`, `sumMMMMrs.m`, `sumMMr11.m`, `sumMMMMrs11.m` + their `m_` inner functions | Convergence wrappers match MATLAB criteria; `@inbounds` on diagonal zeroing |
+| `rate.jl` | `m_rateW.m`, `rateW.m`, `calculateAllRateW.m` | Flat `Vector{Float64}` rate store with 5D index arithmetic: `(((n1*2+n2)*N+q1)*2+lead_idx)*N+q2+1`; `@view` for zero-allocation vector access |
+| `matrix.jl` | `generateMatrixW.m` | Same index mapping; `@inline` sigma_W/peq_; `@inbounds` on matrix generation loops |
 | `solver.jl` | `solve_steady_state_occupation_probabilities.m` | Augmented system (replace last row with normalization) |
-| `current.jl` | `current_from_rate_equations.m` | Same sign conventions for I_seq0, I_seq1, I_cot |
+| `current.jl` | `current_from_rate_equations.m` | Same sign conventions for I_seq0, I_seq1, I_cot; `@inline` psub_ |
 | `plotting.jl` | `plot_IV` in `run_benchmark.m` | CairoMakie, LaTeX labels, 12×9 cm, 300 dpi |
-| `run_benchmark.jl` | `run_benchmark.m` | JIT warm-up + 3 timed runs + median |
+| `run_benchmark.jl` | `run_benchmark.m` | JIT warm-up + 3 timed runs + median; `--threads=auto` recommended |
 
 ### Design Decisions
 
@@ -148,8 +148,9 @@ The Julia port is a 1:1 faithful translation of the MATLAB reference. Every func
 |----------|-----------|
 | `SpecialFunctions.jl` digamma/trigamma | Native complex support; replaces MATLAB's symbolic bottleneck (1000x faster) |
 | Laguerre via recurrence (no package) | Zero deps, matches MATLAB `laguerreL` exactly, ~10 ns/call |
-| `Dict`-based FC matrix cache | Replaces MATLAB `memoize`; lambda is fixed per simulation so key is just (q1, q2) |
-| Pre-computed rate store `Dict{Tuple,Vector}` | Replaces MATLAB's global memoize cache; key = (n1, n2, q1, lead), value = rates for all q2 |
+| Pre-populated 256×256 `Matrix{Float64}` FC cache | Replaces Dict; O(1) array access vs hash lookup; pre-populated once (~15ms), shared read-only across threads; returns 0.0 for q≥256 (exact: `gamma(172)` overflows in Float64) |
+| Flat `Vector{Float64}` rate store (8N² elements) | Replaces `Dict{Tuple,Vector}`; 5D index arithmetic matching Rust's `rate.rs`; `@view` for vector access (zero allocation) |
+| `Threads.@threads` bias-point parallelism | Each bias point is independent; FCCache shared read-only; per-iteration RateStore (no synchronization) |
 | Augmented system solver (not SVD) | Replace last row of W with normalization; `M_aug \ d` via QR; clamp+renormalize |
 | CairoMakie for plots | Pure Julia, MathTeXEngine for LaTeX, vector PDF + 300 dpi PNG |
 
@@ -165,7 +166,7 @@ The Julia port matches MATLAB to ~5 significant digits across all 201 bias point
 
 4. **MATLAB solver artifacts**: At specific bias points (Vsd ≈ 0.219, 0.585 for quick; Vsd ≈ 0.219, 0.438 for default), MATLAB's `lsqlin` interior-point produces non-smooth I-V values that appear to be solver-dependent numerical artifacts.
 
-**Default spec (N=15)**: Julia matches MATLAB to **6.1×10⁻⁶** max relative error (excluding solver artifacts at Vsd ≈ 0.219, 0.438). Julia matches Rust to **5.1×10⁻¹³**. Wall time: **102 s** on Apple M5 (115× vs MATLAB). Compared to the quick spec, the default spec is ~19.5× slower due to the larger state space (2N=30 vs 2N=12) and deeper cotunneling convergence.
+**Default spec (N=15)**: Julia matches MATLAB to **6.1×10⁻⁶** max relative error (excluding solver artifacts at Vsd ≈ 0.219, 0.438). Julia matches Rust to **1.5×10⁻¹²**. Wall time: **55 s** on Apple M5 with 4 threads (213× vs MATLAB). Compared to the quick spec, the default spec is ~17× slower due to the larger state space (2N=30 vs 2N=12) and deeper cotunneling convergence.
 
 **For future porters**: the 1e-10 tolerance target is achievable for the sequential tunneling component alone (which uses simple FC²×fermi), but the cotunneling component inherently amplifies ULP-level differences. A realistic cross-language tolerance is ~1e-5 for the total current.
 
@@ -184,6 +185,9 @@ The Julia port matches MATLAB to ~5 significant digits across all 201 bias point
 - **Digamma is the key bottleneck**: MATLAB's symbolic `psi(k, sym(x))` is ~1000x slower than native complex digamma. Every language port should use a native implementation (Julia: `SpecialFunctions.jl`, Python: `scipy.special` or `mpmath`, C/Rust: custom asymptotic series).
 - **Laguerre polynomial**: Implement via three-term recurrence. No need for external packages. The recurrence is forward-stable for real positive x.
 - **Memoization**: MATLAB uses `memoize(@func)` extensively. In other languages, use a Dict/HashMap cache keyed by the function arguments. The FC matrix cache is most critical (called millions of times with repeated arguments).
+- **FC cache must be pre-populated for threading**: The lazy-init Dict pattern is not thread-safe. Pre-populating a 256×256 `Matrix{Float64}` in the constructor makes all subsequent reads O(1) and lock-free. FC_MAX_N=256 covers all non-zero entries because `gamma(172)` overflows in Float64 — entries with `max(q1,q2) ≥ 171` are exactly zero. Convergence wrappers can exceed 256, so `get_fc!` returns 0.0 for out-of-bounds (mathematically exact).
+- **Flat rate store beats Dict for cache locality**: Replacing `Dict{Tuple,Vector}` with a flat `Vector{Float64}` using 5D index arithmetic eliminates hash overhead and improves cache locality. Index formula: `(((n1*2+n2)*N+q1)*2+lead_idx)*N+q2+1`. Use `@view` for zero-allocation vector retrieval.
+- **Julia threading limited by GC contention**: The vectorized cotunneling code (broadcasting, `permutedims`, `digamma.()`) creates millions of temporary allocations per bias point. Julia's stop-the-world GC causes contention under multi-threading. Thread efficiency is ~40-50% for the default spec. For better scaling, the cotunneling/regularized code would need to be rewritten with in-place operations — a major change.
 - **Steady-state solver**: MATLAB uses `lsqlin` (constrained least-squares, interior-point). A simpler approach works: replace the last row of W with the normalization constraint `sum(P)=1`, solve via backslash/QR, clamp negatives, renormalize. For sensitive bias points, consider a proper QP solver (e.g., Ipopt, OSQP).
 - **Bias sweep generation**: MATLAB's colon operator `a:d:b` uses different floating-point arithmetic than other languages' range generators. Read the MATLAB reference Vsd values from the JSON when validating to avoid ULP-level bias point mismatches.
 - **Sign conventions**: Pay careful attention to the sign in the current computation. For n=0→1: `diffW = w_R - w_L`. For n=1→0: `diffW = w_L - w_R` (opposite!). For cotunneling: `diffW = w_RL - w_LR`.

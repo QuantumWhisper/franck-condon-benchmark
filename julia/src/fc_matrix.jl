@@ -37,20 +37,56 @@ function fc_matrix_single(q1::Int, q2::Int, lambda::Float64)::Float64
     return (isnan(M) || isinf(M)) ? 0.0 : M
 end
 
+const FC_MAX_N = 256
+
 """
-FC matrix cache for a fixed lambda value. Avoids recomputation of FC elements.
+FC matrix cache for a fixed lambda value. Pre-populated flat Matrix for O(1) lookup.
+Thread-safe after construction: the cache Matrix is populated once and then only read.
 """
-mutable struct FCCache
-    cache::Dict{Tuple{Int,Int},Float64}
+struct FCCache
+    cache::Matrix{Float64}   # FC_MAX_N × FC_MAX_N, indexed as [q1+1, q2+1]
     lambda::Float64
 end
 
-FCCache(lambda::Float64) = FCCache(Dict{Tuple{Int,Int},Float64}(), lambda)
+"""
+    FCCache(lambda) -> FCCache
 
-function get_fc!(fc::FCCache, q1::Int, q2::Int)::Float64
-    get!(fc.cache, (q1, q2)) do
-        fc_matrix_single(q1, q2, fc.lambda)
+Construct and pre-populate the FC cache for all q1, q2 in 0:FC_MAX_N-1.
+Cost: ~65536 evaluations of fc_matrix_single (~5-50 ms). One-time cost per simulation.
+
+FC_MAX_N=256 covers ALL non-zero FC matrix elements: gamma(172) overflows in Float64,
+so fc_matrix_single returns 0.0 for any (q1,q2) where max(q1,q2) ≥ 171. The convergence
+wrappers may access q ≥ 256, but those entries are guaranteed 0.0 (handled by get_fc!).
+
+After construction, the cache is immutable and thread-safe for concurrent reads.
+"""
+function FCCache(lambda::Float64)
+    cache = Matrix{Float64}(undef, FC_MAX_N, FC_MAX_N)
+    for q2 in 0:FC_MAX_N-1
+        for q1 in 0:FC_MAX_N-1
+            cache[q1 + 1, q2 + 1] = fc_matrix_single(q1, q2, lambda)
+        end
     end
+    return FCCache(cache, lambda)
+end
+
+"""
+    get_fc!(fc::FCCache, q1::Int, q2::Int) -> Float64
+
+Retrieve pre-computed FC matrix element. O(1) array access, no allocation.
+Name kept with `!` for backward compatibility; function is actually read-only
+after FCCache construction.
+
+For q ≥ FC_MAX_N (256), returns 0.0 directly. This is mathematically exact:
+gamma(172) overflows in Float64, so fc_matrix_single returns 0.0 for any
+(q1, q2) where max(q1, q2) ≥ 171. Since FC_MAX_N=256 > 171, all non-zero
+FC elements are in the cache.
+"""
+@inline function get_fc!(fc::FCCache, q1::Int, q2::Int)::Float64
+    if q1 >= FC_MAX_N || q2 >= FC_MAX_N
+        return 0.0
+    end
+    @inbounds return fc.cache[q1 + 1, q2 + 1]
 end
 
 """
@@ -63,7 +99,7 @@ function fc_matrix(q1_range, q2_range, fc::FCCache)::Matrix{Float64}
     nq1 = length(q1_range)
     nq2 = length(q2_range)
     M = Matrix{Float64}(undef, nq1, nq2)
-    for (j, q2) in enumerate(q2_range)
+    @inbounds for (j, q2) in enumerate(q2_range)
         for (i, q1) in enumerate(q1_range)
             M[i, j] = get_fc!(fc, q1, q2)
         end

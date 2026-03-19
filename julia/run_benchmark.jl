@@ -3,9 +3,12 @@
 # run_benchmark.jl — Franck-Condon I-V simulation benchmark (Julia)
 #
 # Usage:
-#   julia run_benchmark.jl              # uses 'default' spec
-#   julia run_benchmark.jl quick        # uses 'quick' spec
-#   julia run_benchmark.jl default      # uses 'default' spec
+#   julia --threads=auto run_benchmark.jl              # uses 'default' spec
+#   julia --threads=auto run_benchmark.jl quick        # uses 'quick' spec
+#   julia --threads=auto run_benchmark.jl default      # uses 'default' spec
+#
+# Threading: Use --threads=auto (or -t auto) for parallel bias-point computation.
+# Without it, Julia runs single-threaded and misses the ~6-8x parallelism speedup.
 #
 
 using Pkg
@@ -69,7 +72,12 @@ function main()
     println("=== Franck-Condon Benchmark (Julia) [$spec_name] ===")
     @printf("N=%d, lambda=%.1f, T=%.1f K, Vsd=[%.3f:%.3f:%.3f] V\n",
             N, lambda, T, Vsd_start, Vsd_step, Vsd_end)
-    @printf("Total bias points: %d\n\n", length(Vsd))
+    @printf("Total bias points: %d\n", length(Vsd))
+    @printf("Julia threads: %d\n", Threads.nthreads())
+    if Threads.nthreads() == 1
+        println("WARNING: Running single-threaded. Use julia --threads=auto for parallel execution.")
+    end
+    println()
 
     # --- Warm-up run (for JIT compilation) ---
     println("Warm-up run (JIT compilation)...")

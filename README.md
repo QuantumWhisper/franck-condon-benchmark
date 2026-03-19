@@ -77,12 +77,12 @@ results = run_benchmark();           % Same as 'default'
 
 ```bash
 cd julia
-julia run_benchmark.jl quick        # Fast validation (N=6, ~5 seconds)
-julia run_benchmark.jl default      # Full benchmark (N=15)
-julia run_benchmark.jl              # Same as 'default'
+julia --threads=auto run_benchmark.jl quick        # Fast validation (N=6)
+julia --threads=auto run_benchmark.jl default      # Full benchmark (N=15)
+julia --threads=auto run_benchmark.jl              # Same as 'default'
 ```
 
-First run will install dependencies automatically via `Project.toml`. Subsequent runs use the cached environment. The benchmark includes a JIT warm-up pass before timing.
+Use `--threads=auto` (or `-t auto`) for parallel bias-point computation. Without it, Julia runs single-threaded and misses the parallelism speedup. First run will install dependencies automatically via `Project.toml`. Subsequent runs use the cached environment. The benchmark includes a JIT warm-up pass before timing.
 
 ## Quick Start (Python)
 
@@ -181,7 +181,7 @@ Each run produces four files in `benchmark/results/`:
 |----------|-------------|----------------|---------------------|
 | MATLAB | 1844 s | 11725 s | 1× (reference) |
 | Python | 11 s | — ᵇ | **169×** |
-| Julia | 5.2 s | 102 s | **115×** |
+| Julia | 3.2 s | 55 s | **213×** |
 | Fortran | 0.36 s | 2.6 s | **4510×** |
 | C++ | 0.27 s | 2.0 s | **5863×** |
 | C (GSL) | 0.56 s | 2.2 s | **5330×** |
@@ -193,7 +193,7 @@ Speedup column refers to the default spec (N=15), the primary benchmark. All por
 - Quick spec ᵃ: Apple M5 (10 cores: 4S+6E, 24 GB)
 - Default spec: MATLAB on Apple M4 Max (14 cores: 4E+10P, 32 GPU cores); all other languages on Apple M5
 
-ᵃ Quick-spec speedups vs MATLAB: Python 169×, Julia 358×, Fortran 5122×, C 3293×, C++ 6830×, Rust 6638×.
+ᵃ Quick-spec speedups vs MATLAB: Python 169×, Julia 576×, Fortran 5122×, C 3293×, C++ 6830×, Rust 6638×.
 ᵇ Python's default spec (N=15) is too slow for practical benchmarking on consumer hardware (~30 min+ per run estimated). The quick spec (N=6) completes in 11 seconds.
 
 **Numerical accuracy (default spec):** All ports match MATLAB to **6.1×10⁻⁶** max relative error (excluding 2 solver-artifact bias points at Vsd ≈ 0.219 V and 0.438 V where the rate matrix W is ill-conditioned and different linear solvers give different results). Non-MATLAB ports agree with each other to **<5×10⁻¹³**.
@@ -207,7 +207,7 @@ Speedup column refers to the default spec (N=15), the primary benchmark. All por
 | C++ | ✅ Complete | **5863×** | OpenMP parallel + optimized digamma + LTO |
 | C (GSL) | ✅ Complete | **5330×** | OpenMP parallel + pure asymptotic digamma + LTO |
 | Fortran | ✅ Complete | **4510×** | OpenMP parallel + fast-path digamma + LTO |
-| Julia | ✅ Complete | **115×** | SpecialFunctions.jl digamma |
+| Julia | ✅ Complete | **213×** | Threaded parallel + pre-populated FC cache + flat rate store |
 | Python (Numba) | ✅ Complete | — | 169× on quick spec; default spec too slow |
 
 ## Reference

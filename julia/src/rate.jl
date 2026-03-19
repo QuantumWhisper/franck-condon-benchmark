@@ -1,7 +1,29 @@
 """
-Rate store: pre-computed rates indexed by (n1, n2, q1, lead) → Vector{Float64} of length N.
+Rate store: pre-computed rates in a flat array indexed by (n1, n2, q1, lead, q2).
+Replaces Dict{Tuple{Int,Int,Int,Int},Vector{Float64}} for O(1) cache-friendly access.
+
+Index formula (matching Rust's rate.rs):
+  flat_idx = (((n1*2 + n2)*N + q1)*2 + lead_idx)*N + q2 + 1
+  where lead_idx = 0 for lead=+1, 1 for lead=-1.
+Total size: 2 × 2 × N × 2 × N = 8N².
 """
-const RateStore = Dict{Tuple{Int,Int,Int,Int},Vector{Float64}}
+struct RateStore
+    n::Int
+    data::Vector{Float64}
+end
+
+"""
+    RateStore(n::Int) -> RateStore
+
+Create a rate store for N phonon states. Allocates flat array of size 8N².
+"""
+RateStore(n::Int) = RateStore(n, zeros(Float64, 2 * 2 * n * 2 * n))
+
+@inline _lead_idx(lead::Int) = lead == 1 ? 0 : 1
+
+@inline function _rate_idx(n::Int, n1::Int, n2::Int, q1::Int, lead_idx::Int, q2::Int)::Int
+    (((n1 * 2 + n2) * n + q1) * 2 + lead_idx) * n + q2 + 1
+end
 
 """
     spin_degeneracy(n1, n2) -> Float64
@@ -90,41 +112,61 @@ function calculate_all_rateW!(store::RateStore, N::Int, vmode::Float64, alphaL::
                                alphaR::Float64, lambda::Float64, Vsd::Float64, T::Float64,
                                eta::Float64, lead::Int, Vg::Float64, fc::FCCache)
     q2_vec = collect(0:N-1)
+    lid = _lead_idx(lead)
+    n = store.n
     for n1 in 0:1
         for n2 in 0:1
             for ii in 1:N
                 q1 = ii - 1
                 w = m_rateW(n1, n2, q1, q2_vec, vmode, alphaL, alphaR, lambda,
                             Vsd, T, eta, lead, Vg, fc)
-                store[(n1, n2, q1, lead)] = w
+                # Store rates in flat array (contiguous block for all q2)
+                base = _rate_idx(n, n1, n2, q1, lid, 0)
+                @inbounds for i in 1:n
+                    store.data[base + i - 1] = w[i]
+                end
             end
         end
     end
 end
 
 """
-    rateW_from_store(store, n1, n2, q1, q2_indices, lead)
+    rateW_from_store(store, n1, n2, q1, q2, lead) -> Float64
 
-Retrieve pre-computed rates from store. q2_indices are 0-based.
+Retrieve single pre-computed rate from store. q2 is 0-based.
 """
-function rateW_from_store(store::RateStore, n1::Int, n2::Int, q1::Int,
-                          q2_indices, lead::Int)
-    w_full = store[(n1, n2, q1, lead)]
-    if q2_indices isa Integer
-        return w_full[q2_indices + 1]
-    else
-        return w_full[collect(q2_indices) .+ 1]
-    end
+@inline function rateW_from_store(store::RateStore, n1::Int, n2::Int, q1::Int,
+                                   q2::Int, lead::Int)::Float64
+    @inbounds return store.data[_rate_idx(store.n, n1, n2, q1, _lead_idx(lead), q2)]
+end
+
+"""
+    rateW_from_store(store, n1, n2, q1, q2_vec, lead) -> SubArray
+
+Retrieve pre-computed rates for all q2 values. Returns a view (zero allocation).
+q2_vec must be 0:N-1 (the standard call pattern).
+"""
+@inline function rateW_from_store(store::RateStore, n1::Int, n2::Int, q1::Int,
+                                   q2_vec::AbstractVector{Int}, lead::Int)
+    n = store.n
+    base = _rate_idx(n, n1, n2, q1, _lead_idx(lead), 0)
+    @inbounds return @view store.data[base:base+n-1]
 end
 
 """
     rateW_lead_from_store(store, n1, n2, q1, q2)
 
-Rate summed over both leads. q2 can be scalar or vector (0-based).
+Rate summed over both leads. q2 can be scalar (0-based) or vector.
 Matches MATLAB `rateW_lead.m`.
 """
-function rateW_lead_from_store(store::RateStore, n1::Int, n2::Int, q1::Int, q2)
+@inline function rateW_lead_from_store(store::RateStore, n1::Int, n2::Int, q1::Int, q2::Int)
     wl = rateW_from_store(store, n1, n2, q1, q2, 1)
     wr = rateW_from_store(store, n1, n2, q1, q2, -1)
+    return wl + wr
+end
+
+function rateW_lead_from_store(store::RateStore, n1::Int, n2::Int, q1::Int, q2_vec::AbstractVector{Int})
+    wl = rateW_from_store(store, n1, n2, q1, q2_vec, 1)
+    wr = rateW_from_store(store, n1, n2, q1, q2_vec, -1)
     return wl .+ wr
 end
