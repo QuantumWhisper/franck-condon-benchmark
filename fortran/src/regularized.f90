@@ -1,6 +1,6 @@
 module fc_regularized
     use fc_constants, only: KB_EV, PI
-    use fc_digamma, only: digamma_c, trigamma_c
+    use fc_digamma, only: fast_digamma, fast_trigamma
     use fc_fermi_bose, only: bose_fcn
     implicit none
 contains
@@ -27,14 +27,14 @@ contains
         do i = 1, n_eps1
             a1 = cmplx(0.5d0, coeff * (E2 - epsilon1(i)), kind=8)
             a3 = cmplx(0.5d0, coeff * (E1 - epsilon1(i)), kind=8)
-            row_diff(i) = digamma_c(a1) - digamma_c(a3)
+            row_diff(i) = fast_digamma(a1) - fast_digamma(a3)
         end do
 
         ! Precompute column-only digamma differences
         do j = 1, n_eps2
             a2 = cmplx(0.5d0, -coeff * (E2 - epsilon2(j)), kind=8)
             a4 = cmplx(0.5d0, -coeff * (E1 - epsilon2(j)), kind=8)
-            col_diff(j) = digamma_c(a2) - digamma_c(a4)
+            col_diff(j) = fast_digamma(a2) - fast_digamma(a4)
         end do
 
         ! Compute matrix entries
@@ -76,14 +76,14 @@ contains
         ! Precompute trigamma(a2) per row
         do i = 1, n_eps
             a2 = cmplx(0.5d0, coeff * (E1 - epsilon(i)), kind=8)
-            trig_a2(i) = trigamma_c(a2)
+            trig_a2(i) = fast_trigamma(a2)
         end do
 
         ! Compute matrix entries
         do j = 1, n_E2
             do i = 1, n_eps
                 a1 = cmplx(0.5d0, coeff * (E2(j) - epsilon(i)), kind=8)
-                val = coeff * bose_vals(j) * aimag(trigamma_c(a1) - trig_a2(i))
+                val = coeff * bose_vals(j) * aimag(fast_trigamma(a1) - trig_a2(i))
                 if (val /= val .or. abs(val) > huge(1.0d0)) then
                     out(i, j) = 0.0d0
                 else
@@ -122,7 +122,7 @@ contains
                     eps = epsilon_matrix(j, i)
                     a1 = cmplx(0.5d0, coeff * (E2(j) - eps), kind=8)
                     a2 = cmplx(0.5d0, coeff * (E1 - eps), kind=8)
-                    val = coeff * bose_vals(j) * aimag(trigamma_c(a1) - trigamma_c(a2))
+                    val = coeff * bose_vals(j) * aimag(fast_trigamma(a1) - fast_trigamma(a2))
                     if (val /= val .or. abs(val) > huge(1.0d0)) then
                         out(i, j) = 0.0d0
                     else

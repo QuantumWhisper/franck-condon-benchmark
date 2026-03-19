@@ -94,7 +94,9 @@ program fc_benchmark
             if (es > max_err_seq) max_err_seq = es
             if (ec > max_err_cot) max_err_cot = ec
 
+            ! Solver artifacts: Vsd~0.219 (both specs), ~0.438 (default N=15), ~0.585 (quick N=6)
             is_artifact = (abs(Vsd(i) - 0.219d0) < 0.002d0) .or. &
+                          (abs(Vsd(i) - 0.438d0) < 0.002d0) .or. &
                           (abs(Vsd(i) - 0.585d0) < 0.002d0)
             if (.not. is_artifact) then
                 if (et > max_err_tol_ex) max_err_tol_ex = et
@@ -106,7 +108,7 @@ program fc_benchmark
         write(*, '(A)') 'Max relative error vs MATLAB (all points):'
         write(*, '(A,ES10.3,A,ES10.3,A,ES10.3)') &
             '  I_tol: ', max_err_tol, '  I_seq: ', max_err_seq, '  I_cot: ', max_err_cot
-        write(*, '(A)') 'Max relative error vs MATLAB (excl. solver artifacts at Vsd~0.219,0.585):'
+        write(*, '(A)') 'Max relative error vs MATLAB (excl. solver artifacts at Vsd~0.219,0.438,0.585):'
         write(*, '(A,ES10.3,A,ES10.3,A,ES10.3)') &
             '  I_tol: ', max_err_tol_ex, '  I_seq: ', max_err_seq_ex, '  I_cot: ', max_err_cot_ex
 

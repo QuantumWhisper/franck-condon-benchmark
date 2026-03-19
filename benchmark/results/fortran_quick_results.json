@@ -2,7 +2,7 @@
   "spec": "quick",
   "language": "Fortran",
   "version": "gfortran",
-  "wall_time_seconds": 1.58699999999999997E+00,
+  "wall_time_seconds": 3.73999999999999999E-01,
   "parameters": {
     "N": 6,
     "vmode": 7.29999999999999954E-02,
@@ -831,5 +831,5 @@
     5.75644503653556885E-11,
     6.24583825965335835E-11
   ],
-  "timestamp": "2026-03-16 00:42:05"
+  "timestamp": "2026-03-19 10:29:13"
 }

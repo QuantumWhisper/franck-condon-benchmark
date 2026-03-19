@@ -31,6 +31,70 @@ module fc_digamma
 
 contains
 
+    ! Fast-path digamma: 5-term asymptotic, no reflection/recurrence
+    ! Valid for Re(z) > 0 and |z|^2 > 900 (>99% of calls at T=4.2K)
+    function digamma_asymptotic5(z) result(res)
+        complex(8), intent(in) :: z
+        complex(8) :: res
+        complex(8) :: inv_z, inv_z_sq, inv_power
+        integer :: k
+
+        inv_z = (1.0d0, 0.0d0) / z
+        inv_z_sq = inv_z * inv_z
+        res = log(z) - inv_z * 0.5d0
+        inv_power = inv_z_sq
+        do k = 1, 5
+            res = res - inv_power * DIGAMMA_COEFF(k)
+            inv_power = inv_power * inv_z_sq
+        end do
+    end function digamma_asymptotic5
+
+    ! Fast-path trigamma: 5-term asymptotic, no reflection/recurrence
+    ! Valid for Re(z) > 0 and |z|^2 > 900
+    function trigamma_asymptotic5(z) result(res)
+        complex(8), intent(in) :: z
+        complex(8) :: res
+        complex(8) :: iz, iz2, power
+        integer :: k
+
+        iz = (1.0d0, 0.0d0) / z
+        iz2 = iz * iz
+        res = iz + iz2 * 0.5d0
+        power = iz2 * iz
+        do k = 1, 5
+            res = res + power * BERNOULLI_EVEN(k)
+            power = power * iz2
+        end do
+    end function trigamma_asymptotic5
+
+    ! Dispatching digamma: fast-path if |z|^2 > 900 and Re(z) > 0, else full
+    function fast_digamma(z) result(res)
+        complex(8), intent(in) :: z
+        complex(8) :: res
+        real(8) :: norm_sq
+
+        norm_sq = real(z)**2 + aimag(z)**2
+        if (real(z) > 0.0d0 .and. norm_sq > 900.0d0) then
+            res = digamma_asymptotic5(z)
+        else
+            res = digamma_c(z)
+        end if
+    end function fast_digamma
+
+    ! Dispatching trigamma: fast-path if |z|^2 > 900 and Re(z) > 0, else full
+    function fast_trigamma(z) result(res)
+        complex(8), intent(in) :: z
+        complex(8) :: res
+        real(8) :: norm_sq
+
+        norm_sq = real(z)**2 + aimag(z)**2
+        if (real(z) > 0.0d0 .and. norm_sq > 900.0d0) then
+            res = trigamma_asymptotic5(z)
+        else
+            res = trigamma_c(z)
+        end if
+    end function fast_trigamma
+
     ! Complex digamma function psi(z) via asymptotic series
     ! Optimized: 10-term Bernoulli, threshold |z|>=10, multiply-instead-of-divide
     function digamma_c(z) result(res)

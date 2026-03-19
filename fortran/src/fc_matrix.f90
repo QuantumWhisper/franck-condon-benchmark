@@ -61,6 +61,23 @@ contains
         end if
     end function fc_matrix_single
 
+    ! Pre-populate all FC cache entries up to max_q (thread-safe after this call)
+    subroutine fc_cache_populate(fc, max_q)
+        type(fc_cache_t), intent(inout) :: fc
+        integer, intent(in) :: max_q
+        integer :: q1, q2, n
+
+        n = min(max_q, FC_MAX_N)
+        do q2 = 0, n - 1
+            do q1 = 0, n - 1
+                if (.not. fc%valid(q1, q2)) then
+                    fc%cache(q1, q2) = fc_matrix_single(q1, q2, fc%lambda)
+                    fc%valid(q1, q2) = .true.
+                end if
+            end do
+        end do
+    end subroutine fc_cache_populate
+
     function fc_cache_get(fc, q1, q2) result(val)
         type(fc_cache_t), intent(inout) :: fc
         integer, intent(in) :: q1, q2

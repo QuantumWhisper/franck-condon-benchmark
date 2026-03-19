@@ -1,6 +1,6 @@
 module fc_simulate
     use fc_constants, only: ELEMENTARY_CHARGE
-    use fc_fc_matrix, only: fc_cache_t, fc_cache_init
+    use fc_fc_matrix, only: fc_cache_t, fc_cache_init, fc_cache_populate, FC_MAX_N
     use fc_rate, only: rate_store_t, rate_store_init, rate_store_free, calculate_all_rateW
     use fc_current, only: current_from_rate_equations
     implicit none
@@ -18,16 +18,23 @@ contains
         type(rate_store_t) :: store
         real(8) :: v, s_sign, cr_tol, cr_seq, cr_cot
         integer :: vv
-        character(len=80) :: msg
 
         call fc_cache_init(fc, lambda)
+        ! Pre-populate FC cache for thread-safe read-only access in parallel region
+        call fc_cache_populate(fc, FC_MAX_N)
 
+        !$omp parallel do schedule(dynamic, 4) &
+        !$omp   private(vv, v, store, cr_tol, cr_seq, cr_cot, s_sign) &
+        !$omp   shared(fc, Vsd_vec, N, vmode, alphaL, alphaR, lambda, T, eta, Vg, tau, &
+        !$omp          nVsd, verbose, I_tol_out, I_seq_out, I_cot_out)
         do vv = 1, nVsd
             v = Vsd_vec(vv)
+
             if (verbose) then
-                write(msg, '(A,I4,A,I4,A,F7.4,A)') &
+                !$omp critical
+                write(0, '(A,I4,A,I4,A,F7.4,A)', advance='no') &
                     char(13)//'Bias point ', vv, '/', nVsd, ' (Vsd = ', v, ' V)'
-                write(0, '(A)', advance='no') trim(msg)
+                !$omp end critical
             end if
 
             call rate_store_init(store, N)
@@ -57,6 +64,7 @@ contains
 
             call rate_store_free(store)
         end do
+        !$omp end parallel do
 
         if (verbose) then
             write(0, *)

@@ -103,7 +103,7 @@ Default spec (N=15) results are available for all languages except Python. MATLA
 | Rust | 1.9 s | **6202×** | M5 |
 | C (GSL) | 2.2 s | **5330×** | M5 |
 | C++ | 2.0 s | **5863×** | M5 |
-| Fortran | 12.3 s | **953×** | M5 |
+| Fortran | 2.6 s | **4510×** | M5 |
 | Julia | 102 s | **115×** | M5 |
 | Python | — | — | too slow for N=15 |
 
@@ -303,7 +303,7 @@ The Bernoulli coefficients are stored as compile-time `static const double` arra
 
 ### Performance Notes
 
-The C port runs the quick spec (N=6) in ~0.56 seconds on Apple M5 — a **3293x speedup** over MATLAB (1844s), faster than Fortran (1.6s), Julia (5.2s), and Python (11s).
+The C port runs the quick spec (N=6) in ~0.56 seconds on Apple M5 — a **3293x speedup** over MATLAB (1844s), faster than Julia (5.2s) and Python (11s).
 
 The key optimization is **factored digamma precomputation** in `regularized_I`. The digamma arguments factor into row-only and column-only terms:
 - `ψ(a1[i])` and `ψ(a3[i])` depend only on `epsilon1[i]` (row index)
@@ -549,16 +549,16 @@ The Fortran port follows the C port structure (which is itself a faithful MATLAB
 |------|-------------|-------|
 | `constants.f90` | `constants.h` | Module with same exact values |
 | `laguerre.f90` | `laguerre.c` | Three-term recurrence, identical algorithm |
-| `fc_matrix.f90` | `fc_matrix.c` | 256×256 allocatable cache with validity flags |
+| `fc_matrix.f90` | `fc_matrix.c` | 256×256 cache with validity flags; `fc_cache_populate` pre-fills before OpenMP region |
 | `fermi_bose.f90` | `fermi_bose.c` | Identical formulas |
-| `digamma.f90` | `digamma.c` | Pure Fortran asymptotic series (from Rust's optimized 10-term algorithm) |
+| `digamma.f90` | `digamma.c` | Pure Fortran asymptotic series; 10-term full-path + 5-term fast-path (\|z\|²>900) + dispatchers |
 | `regularized.f90` | `regularized.c` | Factored digamma precomputation (O(N) instead of O(N²) calls) |
 | `cotunneling.f90` | `cotunneling.c` | Convergence wrappers with selective recomputation; largest module |
 | `rate.f90` | `rate.c` | Flat allocatable array rate store with index arithmetic |
 | `matrix.f90` | `matrix.c` | Same index mapping, sigma functions, peq |
 | `solver.f90` | `solver.c` | LAPACK `dgesv` (LU factorization); augmented system, clamp+renormalize |
 | `current.f90` | `current.c` | Same sign conventions: 0→1 R−L, 1→0 L−R, cot RL−LR |
-| `simulate.f90` | `simulate.c` | FC cache shared across bias points, rate store per bias point |
+| `simulate.f90` | `simulate.c` | OpenMP `parallel do schedule(dynamic, 4)`; FC cache pre-populated and shared read-only across threads |
 | `json_io.f90` | `json_io.c` | Custom minimal JSON parser (no external library) |
 | `plotting.f90` | `plotting.c` | gnuplot via `execute_command_line`; PDF + PNG |
 | `main.f90` | `main.c` | `system_clock()` timing; 3 runs + median; validation excludes MATLAB solver artifacts |
@@ -568,44 +568,49 @@ The Fortran port follows the C port structure (which is itself a faithful MATLAB
 | Decision | Rationale |
 |----------|-----------|
 | Pure Fortran digamma (10-term Bernoulli, from Rust) | No GSL FFI needed; Fortran native complex(8) supports all operations |
+| Fast-path digamma/trigamma (5 terms for \|z\|²>900) | >99% hit rate at T=4.2K; skips reflection and recurrence; matches C/C++/Rust optimization |
+| OpenMP `parallel do schedule(dynamic, 4)` | Bias points are independent; dynamic scheduling handles variable cotunneling cost |
+| FC cache pre-populated via `fc_cache_populate` | All 256×256 entries computed before OpenMP region; read-only in parallel (thread-safe without synchronization) |
 | LAPACK `dgesv` for steady-state solver | Universally available; LU factorization on augmented system; macOS Accelerate framework |
 | Custom minimal JSON parser | Fortran has no standard JSON library; benchmark JSON format is simple enough for string parsing |
 | 256×256 FC cache with logical validity array | Same pattern as C; Fortran allocatable arrays with 0-based bounds |
 | Flat allocatable rate store | `allocatable :: data(:)` with manual index arithmetic; matches C's flat array approach |
 | `ieee_arithmetic` module for infinity | Portable IEEE 754 infinity for tau="Inf" handling |
 | gnuplot via `execute_command_line` | Same approach as C port; writes script to temp file, executes gnuplot |
+| `-fopenmp` in FFLAGS | GCC gfortran supports OpenMP natively; links `-lgomp` automatically |
 
 ### Complex Digamma/Trigamma Strategy
 
-Fortran has native `complex(kind=8)` support with intrinsic `log`, `sin`, `cos`, `exp`, `abs` for complex arguments. The implementation ports Rust's optimized algorithm:
+Fortran has native `complex(kind=8)` support with intrinsic `log`, `sin`, `cos`, `exp`, `abs` for complex arguments. The implementation ports Rust's optimized algorithm with a two-tier approach:
 
-1. **Digamma ψ(z)**: 10-term Bernoulli asymptotic series with:
-   - Reflection formula for Re(z) ≤ 0
-   - Recurrence shift until |z|² ≥ 100 (norm_sqr avoids sqrt)
-   - Pre-computed coefficients: `DIGAMMA_COEFF(k) = B_{2(k+1)} / (2*(k+1))`
-   - Multiply-instead-of-divide pattern: `inv_power * coeff` instead of `coeff / power`
+1. **Digamma ψ(z)**: Custom implementation with two tiers:
+   - **Fast-path** (`digamma_asymptotic5`): For Re(z) > 0 and |z|² > 900 — uses only 5 pre-computed `DIGAMMA_COEFF` entries, no reflection or recurrence. At T=4.2K, >99% of calls hit this path.
+   - **Full-path**: 10-term Bernoulli asymptotic expansion with pre-computed `DIGAMMA_COEFF(k) = B_{2(k+1)} / (2*(k+1))`. Recurrence shift until |z|² ≥ 100 (using norm_sqr to avoid sqrt). Reflection formula for Re(z) ≤ 0.
 
-2. **Trigamma ψ'(z)**: 10-term Bernoulli asymptotic series with:
-   - Same reflection and recurrence as digamma
-   - Direct use of `BERNOULLI_EVEN` coefficients
+2. **Trigamma ψ'(z)**: Matching two-tier structure:
+   - **Fast-path** (`trigamma_asymptotic5`): For Re(z) > 0 and |z|² > 900 — 5 Bernoulli terms.
+   - **Full-path**: 10-term Bernoulli expansion, recurrence threshold |z|² ≥ 100, reflection formula.
 
 ### Performance Notes
 
-The Fortran port runs the quick spec (N=6) in ~1.6 seconds on Apple Silicon — a **1153x speedup** over MATLAB (1844s), within 5% of Rust (1.5s).
+The Fortran port runs the quick spec (N=6) in ~0.36 seconds on Apple M5 — a **5122x speedup** over MATLAB (1844s), comparable to C (0.56s) and C++ (0.27s).
 
 The key optimizations:
-1. **Factored digamma precomputation** in `regularized_I`: 4×N calls instead of 4×N²
-2. **10-term Bernoulli series** with pre-computed coefficients (from Rust)
-3. **norm_sqr threshold**: avoids sqrt per recurrence iteration
-4. **LAPACK on Accelerate**: Apple's optimized BLAS/LAPACK via the Accelerate framework
-5. **Stack-allocated temporaries**: automatic arrays instead of heap allocation in hot loops
-6. **Compiler flags**: `-O3 -march=native -flto -funroll-loops` for LTO + native SIMD
+1. **OpenMP parallel bias-point loop**: `!$omp parallel do schedule(dynamic, 4)` distributes 201 bias points across all available cores
+2. **Pre-populated FC cache**: All 256×256 entries computed once before the parallel region; shared read-only across threads (no synchronization needed)
+3. **Fast-path digamma/trigamma**: 5-term Bernoulli asymptotic series for |z|² > 900 (>99% hit rate at T=4.2K); skips reflection and recurrence entirely
+4. **Factored digamma precomputation** in `regularized_I`: 4×N calls instead of 4×N²
+5. **10-term Bernoulli series** with pre-computed coefficients (from Rust)
+6. **norm_sqr threshold**: avoids sqrt per recurrence iteration
+7. **LAPACK on Accelerate**: Apple's optimized BLAS/LAPACK via the Accelerate framework
+8. **Compiler flags**: `-O3 -march=native -flto -funroll-loops -fopenmp` for LTO + native SIMD + OpenMP
 
-Performance history on the same hardware:
+Performance history on the same hardware (Apple M5, quick spec):
 - Initial port (-O2): 2.1s (878x vs MATLAB)
-- Optimized (-O3 -march=native -flto): **1.6s (1153x vs MATLAB)**
+- Optimized (-O3 -march=native -flto): 1.6s (1153x vs MATLAB)
+- + OpenMP + fast-path digamma: **0.36s (5122x vs MATLAB)**
 
-**Default spec (N=15)**: **12.3 s** on Apple M5 — a **953× speedup** over MATLAB. Matches MATLAB to **6.1×10⁻⁶** (excluding solver artifacts at Vsd ≈ 0.219, 0.438). Matches Rust to **4.9×10⁻¹³**.
+**Default spec (N=15)**: **2.6 s** on Apple M5 — a **4510× speedup** over MATLAB. Matches MATLAB to **6.1×10⁻⁶** (excluding solver artifacts at Vsd ≈ 0.219, 0.438). Matches Rust to **4.9×10⁻¹³**.
 
 ### Numerical Precision Notes
 
@@ -621,6 +626,8 @@ The Fortran port matches MATLAB to **7.65e-5 max relative error** at 199 of 201 
 - **Module compilation order matters**: Fortran modules must be compiled in dependency order. The Makefile lists sources in topological order.
 - **`implicit none` everywhere**: Catches typos that would silently create new variables in classic Fortran.
 - **Argument declaration ordering**: In Fortran, dummy arguments used as array dimensions must be declared before the arrays that use them (e.g., `integer, intent(in) :: nVsd` before `real(8), intent(in) :: Vsd(nVsd)`).
+- **FC cache must be pre-populated for OpenMP**: The lazy-init pattern in `fc_cache_get` is not thread-safe. Pre-populating all 256×256 entries via `fc_cache_populate(fc, FC_MAX_N)` before the parallel region makes `fc_cache_get` purely read-only (safe to share across threads without synchronization).
+- **Homebrew gfortran supports OpenMP natively**: `-fopenmp` in FFLAGS is all that's needed. GCC-based gfortran (from Homebrew) links `-lgomp` automatically. No separate libomp installation required (unlike Apple Clang for C/C++).
 
 ## C++ Implementation (cpp/src/)
 
