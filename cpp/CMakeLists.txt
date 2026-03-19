@@ -50,8 +50,10 @@ add_executable(cpp_benchmark
 )
 
 target_compile_options(cpp_benchmark PRIVATE
-    -O3 -march=native -Wall -Wextra -Wno-unused-parameter
+    -O3 -march=native -flto -Wall -Wextra -Wno-unused-parameter
 )
+
+target_link_options(cpp_benchmark PRIVATE -flto)
 
 target_link_libraries(cpp_benchmark PRIVATE
     Eigen3::Eigen

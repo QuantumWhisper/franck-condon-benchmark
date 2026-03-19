@@ -49,19 +49,14 @@ double fc_matrix_single(int q1, int q2, double lambda) {
     return M;
 }
 
-double fc_cache_get(FCCache& fc, int q1, int q2) {
+double fc_cache_get(const FCCache& fc, int q1, int q2) {
     if (q1 < 0 || q2 < 0 || q1 >= FC_MAX_N || q2 >= FC_MAX_N) {
         return 0.0;
-    }
-
-    if (!fc.valid[q1][q2]) {
-        fc.cache[q1][q2] = fc_matrix_single(q1, q2, fc.lambda);
-        fc.valid[q1][q2] = true;
     }
     return fc.cache[q1][q2];
 }
 
-void fc_matrix_row(FCCache& fc, int q1, const int* q2_range, int nq2, double* out) {
+void fc_matrix_row(const FCCache& fc, int q1, const int* q2_range, int nq2, double* out) {
     if (nq2 <= 0) {
         return;
     }
@@ -72,9 +67,13 @@ void fc_matrix_row(FCCache& fc, int q1, const int* q2_range, int nq2, double* ou
 }
 
 void fc_cache_populate(FCCache& fc, int N) {
-    for (int q1 = 0; q1 < N; ++q1) {
-        for (int q2 = 0; q2 < N; ++q2) {
-            fc_cache_get(fc, q1, q2);
+    int bound = (N < FC_MAX_N) ? N : FC_MAX_N;
+    for (int q1 = 0; q1 < bound; ++q1) {
+        for (int q2 = 0; q2 < bound; ++q2) {
+            if (!fc.valid[q1][q2]) {
+                fc.cache[q1][q2] = fc_matrix_single(q1, q2, fc.lambda);
+                fc.valid[q1][q2] = true;
+            }
         }
     }
 }

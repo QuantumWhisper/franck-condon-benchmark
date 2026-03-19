@@ -27,7 +27,7 @@ SimulationResult simulate_iv(int N, double vmode, double alphaL, double alphaR,
     res.I_cot.resize(nVsd, 0.0);
 
     FCCache fc(lambda);
-    fc_cache_populate(fc, N);
+    fc_cache_populate(fc, FC_MAX_N);
 
     #pragma omp parallel for schedule(dynamic, 4)
     for (int vv = 0; vv < nVsd; ++vv) {
@@ -40,11 +40,8 @@ SimulationResult simulate_iv(int N, double vmode, double alphaL, double alphaR,
 
         RateStore store(N);
 
-        FCCache fc_local(lambda);
-        fc_cache_populate(fc_local, N);
-
-        calculate_all_rateW(store, N, vmode, alphaL, alphaR, lambda, v, T, eta, 1, Vg, fc_local);
-        calculate_all_rateW(store, N, vmode, alphaL, alphaR, lambda, v, T, eta, -1, Vg, fc_local);
+        calculate_all_rateW(store, N, vmode, alphaL, alphaR, lambda, v, T, eta, 1, Vg, fc);
+        calculate_all_rateW(store, N, vmode, alphaL, alphaR, lambda, v, T, eta, -1, Vg, fc);
 
         CurrentResult cr =
             current_from_rate_equations(v, N, vmode, alphaL, alphaR, lambda, T, eta, Vg, tau,

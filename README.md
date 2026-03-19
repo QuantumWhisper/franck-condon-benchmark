@@ -148,12 +148,12 @@ cd cpp
 brew install eigen nlohmann-json libomp gnuplot   # macOS
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
-./build/cpp_benchmark quick     # Fast validation (N=6, ~1.2 seconds)
+./build/cpp_benchmark quick     # Fast validation (N=6, ~0.27 seconds)
 ./build/cpp_benchmark default   # Full benchmark (N=15)
 ./build/cpp_benchmark           # Same as 'default'
 ```
 
-Modern C++17 implementation with no C library dependencies. Uses Eigen (header-only) for QR decomposition, nlohmann/json (header-only) for JSON I/O, custom asymptotic series for complex digamma/trigamma, and OpenMP for parallel bias-point computation. Uses gnuplot for PDF/PNG plots.
+Modern C++17 implementation with no C library dependencies. Uses Eigen (header-only) for QR decomposition, nlohmann/json (header-only) for JSON I/O, optimized asymptotic series for complex digamma/trigamma (10-term Bernoulli with fast-path for large |z|), OpenMP for parallel bias-point computation, and LTO for cross-module inlining. Uses gnuplot for PDF/PNG plots.
 
 ## Quick Start (Fortran)
 
@@ -183,7 +183,7 @@ Each run produces four files in `benchmark/results/`:
 | Python | 11 s | — ᵇ | **169×** |
 | Julia | 5.2 s | 102 s | **115×** |
 | Fortran | 1.6 s | 12.3 s | **953×** |
-| C++ | 1.2 s | 8.7 s | **1348×** |
+| C++ | 0.27 s | 2.0 s | **5863×** |
 | C (GSL) | 0.56 s | 2.2 s | **5330×** |
 | Rust | 0.28 s | 1.9 s | **6202×** |
 
@@ -193,7 +193,7 @@ Speedup column refers to the default spec (N=15), the primary benchmark. All por
 - Quick spec ᵃ: Apple M5 (10 cores: 4S+6E, 24 GB)
 - Default spec: MATLAB on Apple M4 Max (14 cores: 4E+10P, 32 GPU cores); all other languages on Apple M5
 
-ᵃ Quick-spec speedups vs MATLAB: Python 169×, Julia 358×, Fortran 1153×, C++ 1598×, C 3293×, Rust 6638×.
+ᵃ Quick-spec speedups vs MATLAB: Python 169×, Julia 358×, Fortran 1153×, C 3293×, C++ 6830×, Rust 6638×.
 ᵇ Python's default spec (N=15) is too slow for practical benchmarking on consumer hardware (~30 min+ per run estimated). The quick spec (N=6) completes in 11 seconds.
 
 **Numerical accuracy (default spec):** All ports match MATLAB to **6.1×10⁻⁶** max relative error (excluding 2 solver-artifact bias points at Vsd ≈ 0.219 V and 0.438 V where the rate matrix W is ill-conditioned and different linear solvers give different results). Non-MATLAB ports agree with each other to **<5×10⁻¹³**.
@@ -204,8 +204,8 @@ Speedup column refers to the default spec (N=15), the primary benchmark. All por
 |----------|--------|-------------------|-------|
 | MATLAB | ✅ Reference | 1× | Symbolic Math Toolbox required |
 | Rust | ✅ Complete | **6202×** | Fastest. Rayon parallel + optimized digamma |
+| C++ | ✅ Complete | **5863×** | OpenMP parallel + optimized digamma + LTO |
 | C (GSL) | ✅ Complete | **5330×** | OpenMP parallel + pure asymptotic digamma + LTO |
-| C++ | ✅ Complete | **1348×** | OpenMP parallel + Eigen QR |
 | Fortran | ✅ Complete | **953×** | LAPACK (Accelerate) + Rust-derived digamma |
 | Julia | ✅ Complete | **115×** | SpecialFunctions.jl digamma |
 | Python (Numba) | ✅ Complete | — | 169× on quick spec; default spec too slow |

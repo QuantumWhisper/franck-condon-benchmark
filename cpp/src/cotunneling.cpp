@@ -36,7 +36,7 @@ static bool any_greater_than(const double* arr, int n, double threshold) {
 void m_sumMMr(int N, int q1, const int* q2_vec, int nq2,
               double lambda, double muL, double muR,
               double vmode, double epsilond, double T,
-              FCCache& fc, double* out) {
+              const FCCache& fc, double* out) {
     (void)lambda;
     if (N <= 0 || nq2 <= 0) {
         return;
@@ -78,7 +78,7 @@ void m_sumMMr(int N, int q1, const int* q2_vec, int nq2,
 void m_sumMMr11(int N, int q1, const int* q2_vec, int nq2,
                 double lambda, double muL, double muR,
                 double vmode, double epsilond, double T,
-                FCCache& fc, double* out) {
+                const FCCache& fc, double* out) {
     (void)lambda;
     if (N <= 0 || nq2 <= 0) {
         return;
@@ -118,7 +118,7 @@ void m_sumMMr11(int N, int q1, const int* q2_vec, int nq2,
 double m_sumMMMMrs(int N, int q1, int q2,
                    double lambda, double muL, double muR,
                    double vmode, double epsilond, double T,
-                   FCCache& fc) {
+                   const FCCache& fc) {
     (void)lambda;
     if (N <= 0) {
         return 0.0;
@@ -158,7 +158,7 @@ double m_sumMMMMrs(int N, int q1, int q2,
 double m_sumMMMMrs11(int N, int q1, int q2,
                      double lambda, double muL, double muR,
                      double vmode, double epsilond, double T,
-                     FCCache& fc) {
+                     const FCCache& fc) {
     (void)lambda;
     if (N <= 0) {
         return 0.0;
@@ -198,7 +198,7 @@ double m_sumMMMMrs11(int N, int q1, int q2,
 void sumMMr(int q1, const int* q2_vec, int nq2,
             double lambda, double muL, double muR,
             double vmode, double epsilond, double T,
-            FCCache& fc, double* out) {
+            const FCCache& fc, double* out) {
     if (nq2 <= 0) {
         return;
     }
@@ -265,7 +265,7 @@ void sumMMr(int q1, const int* q2_vec, int nq2,
 void sumMMr11(int q1, const int* q2_vec, int nq2,
               double lambda, double muL, double muR,
               double vmode, double epsilond, double T,
-              FCCache& fc, double* out) {
+              const FCCache& fc, double* out) {
     if (nq2 <= 0) {
         return;
     }
@@ -332,7 +332,7 @@ void sumMMr11(int q1, const int* q2_vec, int nq2,
 void sumMMMMrs(int q1, const int* q2_vec, int nq2,
                double lambda, double muL, double muR,
                double vmode, double epsilond, double T,
-               FCCache& fc, double* out) {
+               const FCCache& fc, double* out) {
     if (nq2 <= 0) {
         return;
     }
@@ -365,7 +365,7 @@ void sumMMMMrs(int q1, const int* q2_vec, int nq2,
 void sumMMMMrs11(int q1, const int* q2_vec, int nq2,
                  double lambda, double muL, double muR,
                  double vmode, double epsilond, double T,
-                 FCCache& fc, double* out) {
+                 const FCCache& fc, double* out) {
     if (nq2 <= 0) {
         return;
     }

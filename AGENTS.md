@@ -102,7 +102,7 @@ Default spec (N=15) results are available for all languages except Python. MATLA
 | MATLAB | 11725 s (~3.3 hr) | 1× (reference) | M4 Max |
 | Rust | 1.9 s | **6202×** | M5 |
 | C (GSL) | 2.2 s | **5330×** | M5 |
-| C++ | 8.7 s | **1348×** | M5 |
+| C++ | 2.0 s | **5863×** | M5 |
 | Fortran | 12.3 s | **953×** | M5 |
 | Julia | 102 s | **115×** | M5 |
 | Python | — | — | too slow for N=15 |
@@ -303,7 +303,7 @@ The Bernoulli coefficients are stored as compile-time `static const double` arra
 
 ### Performance Notes
 
-The C port runs the quick spec (N=6) in ~0.56 seconds on Apple M5 — a **3293x speedup** over MATLAB (1844s), faster than C++ (1.2s), Fortran (1.6s), Julia (5.2s), and Python (11s).
+The C port runs the quick spec (N=6) in ~0.56 seconds on Apple M5 — a **3293x speedup** over MATLAB (1844s), faster than Fortran (1.6s), Julia (5.2s), and Python (11s).
 
 The key optimization is **factored digamma precomputation** in `regularized_I`. The digamma arguments factor into row-only and column-only terms:
 - `ψ(a1[i])` and `ψ(a3[i])` depend only on `epsilon1[i]` (row index)
@@ -632,16 +632,16 @@ The C++ port follows the C port structure using modern C++17 idioms. No GSL or C
 |------|-------------|-------|
 | `constants.hpp` | `constants.h` | `inline constexpr double` instead of `#define` |
 | `laguerre.hpp/.cpp` | `laguerre.c` | Identical three-term recurrence |
-| `fc_matrix.hpp/.cpp` | `fc_matrix.c` | `FCCache` struct with constructor, `bool valid[][]` |
+| `fc_matrix.hpp/.cpp` | `fc_matrix.c` | `FCCache` struct; pre-populated to FC_MAX_N, shared read-only across OpenMP threads |
 | `fermi_bose.hpp/.cpp` | `fermi_bose.c` | Identical formulas |
-| `digamma.hpp/.cpp` | `digamma.c` | Pure asymptotic series (no GSL); `std::complex<double>` |
+| `digamma.hpp/.cpp` | `digamma.c` | 10-term Bernoulli with fast-path (5 terms for \|z\|²>900); pre-computed DIGAMMA_COEFF; `std::norm()` thresholds |
 | `regularized.hpp/.cpp` | `regularized.c` | `std::vector<Complex>` for precomputed digamma values |
 | `cotunneling.hpp/.cpp` | `cotunneling.c` | `std::vector` replaces all `malloc`/`free`; largest module |
 | `rate.hpp/.cpp` | `rate.c` | `RateStore` struct with `std::vector<double>` data member |
 | `matrix.hpp/.cpp` | `matrix.c` | Same index mapping, sigma functions, peq |
 | `solver.hpp/.cpp` | `solver.c` | `Eigen::HouseholderQR` replaces GSL QR |
 | `current.hpp/.cpp` | `current.c` | Same sign conventions: 0→1 R−L, 1→0 L−R, cot RL−LR |
-| `simulate.hpp/.cpp` | `simulate.c` | OpenMP `parallel for schedule(dynamic, 4)` on bias points |
+| `simulate.hpp/.cpp` | `simulate.c` | OpenMP `parallel for schedule(dynamic, 4)`; FC cache shared read-only across threads |
 | `json_io.hpp/.cpp` | `json_io.c` | `nlohmann::json` for parsing; `fprintf` for output (%.17g) |
 | `plotting.hpp/.cpp` | `plotting.c` | Identical gnuplot via `popen()` |
 | `main.cpp` | `main.c` | `std::chrono::steady_clock` timing; 3 runs + median |
@@ -651,6 +651,11 @@ The C++ port follows the C port structure using modern C++17 idioms. No GSL or C
 | Decision | Rationale |
 |----------|-----------|
 | Pure C++ digamma (no GSL) | Matches Rust/Fortran approach; eliminates C library dependency |
+| 10-term Bernoulli with pre-computed DIGAMMA_COEFF | Eliminates runtime division; `inv_power * coeff` instead of `coeff / power` |
+| Fast-path `digamma`/`trigamma` (5 terms for \|z\|²>900) | >99% hit rate at T=4.2K; skips reflection and recurrence entirely |
+| `std::norm(z)` thresholds instead of `std::abs(z)` | Avoids sqrt per recurrence iteration; `std::norm` returns \|z\|² directly |
+| FC cache pre-populated to FC_MAX_N, shared read-only | All 256×256 entries computed once before OpenMP region; `const FCCache&` throughout call chain |
+| `-O3 -flto -march=native` | LTO enables cross-module inlining of digamma into regularized/cotunneling hot loops |
 | `std::complex<double>` | Direct replacement for C99 `double _Complex`; IEEE 754 compatible |
 | Eigen `HouseholderQR` | Header-only, no link-time deps; ~0.04ms for 30×30 systems |
 | nlohmann/json | Single-header vendor; dramatically simplifies JSON I/O vs cJSON |
@@ -661,11 +666,34 @@ The C++ port follows the C port structure using modern C++17 idioms. No GSL or C
 | CMake build system | Standard C++ tooling; handles Eigen/OpenMP platform detection |
 | `fprintf` for output JSON/CSV | Ensures %.17g precision matches C port output exactly |
 
+### Complex Digamma/Trigamma Strategy
+
+C++ uses `std::complex<double>` with a pure asymptotic series approach matching the Rust/C/Fortran ports:
+
+1. **Digamma ψ(z)**: Custom implementation with two tiers:
+   - **Fast-path**: For Re(z) > 0 and |z|² > 900 — uses only 5 pre-computed `DIGAMMA_COEFF` entries, no reflection or recurrence. At T=4.2K, >99% of calls hit this path.
+   - **Full-path**: 10-term Bernoulli asymptotic expansion with pre-computed `DIGAMMA_COEFF[k] = B_{2(k+1)} / (2*(k+1))`. Recurrence shift until |z|² ≥ 400 (using `std::norm()` to avoid `sqrt`). Reflection formula for Re(z) ≤ 0.
+
+2. **Trigamma ψ'(z)**: Matching two-tier structure:
+   - **Fast-path**: For Re(z) > 0 and |z|² > 900 — 5 Bernoulli terms.
+   - **Full-path**: 10-term Bernoulli expansion, recurrence threshold |z|² ≥ 100, reflection formula.
+
 ### Performance Notes
 
-The C++ port runs the quick spec (N=6) in ~1.2 seconds on Apple Silicon — a **1598x speedup** over MATLAB (1844s), faster than C+GSL (2.3s serial) and Fortran (1.6s serial) due to OpenMP parallelism, but slower than Rust+Rayon (0.28s).
+The C++ port runs the quick spec (N=6) in ~0.27 seconds on Apple M5 — a **6830x speedup** over MATLAB (1844s), comparable to Rust+Rayon (0.28s).
 
-**Default spec (N=15)**: **8.7 s** on Apple M5 — a **1348× speedup** over MATLAB. Matches MATLAB to **6.1×10⁻⁶** (excluding solver artifacts at Vsd ≈ 0.219, 0.438). Matches Rust to **4.9×10⁻¹³**.
+**Default spec (N=15)**: **2.0 s** on Apple M5 — a **5863× speedup** over MATLAB. Matches MATLAB to **6.1×10⁻⁶** (excluding solver artifacts at Vsd ≈ 0.219, 0.438). Matches Rust to **4.9×10⁻¹³**.
+
+Performance history on the same hardware:
+- Initial port (20-term digamma, per-thread FCCache recreation): 8.7s default, 1.2s quick
+- Optimized (10-term with fast-path, shared FC cache, LTO): **2.0s default (4.4× faster), 0.27s quick (4.4× faster)**
+
+The key optimizations:
+1. **Shared read-only FC cache**: Pre-populate all 256×256 entries once via `fc_cache_populate(fc, FC_MAX_N)` before the OpenMP parallel region. Previously, each thread recreated and populated its own FCCache — 10 threads × 256×256 entries = massive redundant work. Now `const FCCache&` is passed through the entire call chain (`fc_cache_get`, `calculate_all_rateW`, `m_rateW`, all cotunneling functions).
+2. **10-term Bernoulli with pre-computed DIGAMMA_COEFF**: Reduced from 20 terms to 10 (still ~1e-20 truncation error at |z|≥10). Pre-divided coefficients eliminate runtime complex division.
+3. **Fast-path digamma/trigamma**: 5-term series for |z|² > 900, Re(z) > 0. At T=4.2K, >99% of calls skip reflection and recurrence entirely.
+4. **`std::norm()` recurrence thresholds**: `std::norm(z) < 400.0` instead of `std::abs(z) < 20.0` avoids sqrt per recurrence step.
+5. **LTO (`-flto`)**: Enables cross-module inlining of digamma/trigamma into regularized.cpp and cotunneling.cpp hot loops.
 
 ### Numerical Precision Notes
 
@@ -673,7 +701,10 @@ The C++ port matches MATLAB to **7.65e-5 max relative error** at 199 of 201 bias
 
 ### Lessons from the C++ Port
 
-- **No GSL needed**: The pure asymptotic series for digamma/trigamma (20-term and 10-term Bernoulli respectively) matches GSL's accuracy for |z| ≥ 20 and 10.
+- **FC cache must be pre-populated for OpenMP**: The lazy-init pattern (checking `valid[q1][q2]` and writing on miss) is not thread-safe. Pre-populating all entries via `fc_cache_populate(fc, FC_MAX_N)` makes `fc_cache_get` purely read-only with `const FCCache&` — safe to share across threads without synchronization.
+- **`-O3 -flto` works for C++ on Apple Clang**: Unlike the C port (which regresses 3× with `-O3 -flto`), the C++ port benefits from LTO at `-O3`. This enables cross-module inlining of the digamma fast-path into the regularized integral hot loops.
+- **`std::norm()` is not `std::abs()`**: `std::norm(z)` returns |z|² (no sqrt), while `std::abs(z)` returns |z| (with sqrt). Using `std::norm()` for threshold comparisons saves one sqrt per recurrence iteration — significant when called millions of times.
+- **No GSL needed**: The pure asymptotic series for digamma/trigamma (10-term Bernoulli) matches GSL's accuracy for |z| ≥ 10. Pre-computed `DIGAMMA_COEFF` eliminates runtime division.
 - **Eigen is effortless for small systems**: Header-only, ~3 lines for QR solve, no FFI overhead.
 - **`std::complex<double>` works correctly**: On arm64 Apple Clang, no `__muldc3` overhead was observed at `-O3`.
 - **OpenMP on Apple Clang**: Requires `brew install libomp` and explicit CMake configuration (`-Xpreprocessor -fopenmp`). The CMakeLists.txt auto-detects via `brew --prefix libomp`.

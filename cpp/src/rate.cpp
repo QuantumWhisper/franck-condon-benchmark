@@ -35,7 +35,7 @@ double spin_degeneracy(int n1, int n2) {
 void m_rateW(int n1, int n2, int q1, const int* q2_vec, int nq2,
              double vmode, double alphaL, double alphaR, double lambda,
              double Vsd, double T, double eta, int lead, double Vg,
-             FCCache& fc, double* out) {
+             const FCCache& fc, double* out) {
     (void)lambda;
     if (nq2 <= 0) {
         return;
@@ -112,7 +112,7 @@ void m_rateW(int n1, int n2, int q1, const int* q2_vec, int nq2,
 void calculate_all_rateW(RateStore& store, int N,
                          double vmode, double alphaL, double alphaR,
                          double lambda, double Vsd, double T,
-                         double eta, int lead, double Vg, FCCache& fc) {
+                         double eta, int lead, double Vg, const FCCache& fc) {
     if (N <= 0) {
         return;
     }
