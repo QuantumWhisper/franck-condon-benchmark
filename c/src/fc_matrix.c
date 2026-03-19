@@ -72,3 +72,20 @@ void fc_matrix_row(FCCache *fc, int q1, const int *q2_range, int nq2, double *ou
         out[i] = fc_cache_get(fc, q1, q2_range[i]);
     }
 }
+
+void fc_cache_populate(FCCache *fc, int max_q) {
+    if (fc == 0 || max_q <= 0) {
+        return;
+    }
+    if (max_q > FC_MAX_N) {
+        max_q = FC_MAX_N;
+    }
+    for (int q1 = 0; q1 < max_q; ++q1) {
+        for (int q2 = 0; q2 < max_q; ++q2) {
+            if (!fc->valid[q1][q2]) {
+                fc->cache[q1][q2] = fc_matrix_single(q1, q2, fc->lambda);
+                fc->valid[q1][q2] = 1;
+            }
+        }
+    }
+}

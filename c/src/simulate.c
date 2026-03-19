@@ -4,6 +4,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "constants.h"
 #include "current.h"
 #include "fc_matrix.h"
@@ -55,12 +59,19 @@ SimulationResult simulate_iv(int N, double vmode, double alphaL, double alphaR,
         return res;
     }
     fc_cache_init(fc, lambda);
+    fc_cache_populate(fc, FC_MAX_N);
 
+    #pragma omp parallel for schedule(dynamic, 4)
     for (int vv = 0; vv < nVsd; ++vv) {
         const double v = Vsd_vec[vv];
         if (verbose) {
-            fprintf(stderr, "\rBias point %d/%d (Vsd = %.4f V)", vv + 1, nVsd, v);
-            fflush(stderr);
+#ifdef _OPENMP
+            if (omp_get_thread_num() == 0)
+#endif
+            {
+                fprintf(stderr, "\rBias point %d/%d (Vsd = %.4f V)", vv + 1, nVsd, v);
+                fflush(stderr);
+            }
         }
 
         RateStore store;

@@ -50,7 +50,7 @@ Simulation Pipeline:
 
 The reason this exists: MATLAB's built-in `psi(k, x)` does not support complex arguments. The polygamma function is needed for the analytically regularized cotunneling integrals.
 
-**For all language ports**: use a native complex digamma/polygamma implementation. In Julia, `SpecialFunctions.digamma` handles complex arguments. In Python, `mpmath.digamma` or `scipy`'s polygamma with complex extension works. In C, use the GSL or implement the asymptotic series directly. Do not replicate the symbolic workaround.
+**For all language ports**: use a native complex digamma/polygamma implementation. In Julia, `SpecialFunctions.digamma` handles complex arguments. In Python, `mpmath.digamma` or `scipy`'s polygamma with complex extension works. In C, use the asymptotic series directly (see `c/src/digamma.c`). Do not replicate the symbolic workaround.
 
 ## Physics Notes for Porters
 
@@ -101,9 +101,9 @@ Default spec (N=15) results are available for all languages except Python. MATLA
 |----------|----------------|-------------------|----------|
 | MATLAB | 11725 s (~3.3 hr) | 1× (reference) | M4 Max |
 | Rust | 1.9 s | **6202×** | M5 |
+| C (GSL) | 2.2 s | **5330×** | M5 |
 | C++ | 8.7 s | **1348×** | M5 |
 | Fortran | 12.3 s | **953×** | M5 |
-| C (GSL) | 17.1 s | **685×** | M5 |
 | Julia | 102 s | **115×** | M5 |
 | Python | — | — | too slow for N=15 |
 
@@ -181,7 +181,7 @@ The Julia port matches MATLAB to ~5 significant digits across all 201 bias point
 
 ### Lessons from the Julia Port
 
-- **Digamma is the key bottleneck**: MATLAB's symbolic `psi(k, sym(x))` is ~1000x slower than native complex digamma. Every language port should use a native implementation (Julia: `SpecialFunctions.jl`, Python: `scipy.special` or `mpmath`, C: GSL `gsl_sf_psi`, Rust: custom or `special` crate).
+- **Digamma is the key bottleneck**: MATLAB's symbolic `psi(k, sym(x))` is ~1000x slower than native complex digamma. Every language port should use a native implementation (Julia: `SpecialFunctions.jl`, Python: `scipy.special` or `mpmath`, C/Rust: custom asymptotic series).
 - **Laguerre polynomial**: Implement via three-term recurrence. No need for external packages. The recurrence is forward-stable for real positive x.
 - **Memoization**: MATLAB uses `memoize(@func)` extensively. In other languages, use a Dict/HashMap cache keyed by the function arguments. The FC matrix cache is most critical (called millions of times with repeated arguments).
 - **Steady-state solver**: MATLAB uses `lsqlin` (constrained least-squares, interior-point). A simpler approach works: replace the last row of W with the normalization constraint `sum(P)=1`, solve via backslash/QR, clamp negatives, renormalize. For sensitive bias points, consider a proper QP solver (e.g., Ipopt, OSQP).
@@ -245,7 +245,7 @@ Performance: ~11 seconds for quick spec (N=6) on Apple Silicon, a **169x speedup
 
 ## C Implementation (c/src/)
 
-The C port uses GSL (GNU Scientific Library) for QR decomposition and complex digamma, cJSON (vendored) for JSON I/O, and gnuplot for plotting. It follows the same pipeline structure as Julia and Python.
+The C port uses GSL (GNU Scientific Library) for QR decomposition, OpenMP for parallel bias-point computation, custom asymptotic series for complex digamma/trigamma (matching the Rust algorithm), cJSON (vendored) for JSON I/O, and gnuplot for plotting. It follows the same pipeline structure as Julia and Python.
 
 ### Key Files
 
@@ -255,14 +255,14 @@ The C port uses GSL (GNU Scientific Library) for QR decomposition and complex di
 | `laguerre.h/.c` | `laguerreL` (built-in) | Three-term recurrence, `int` alpha |
 | `fc_matrix.h/.c` | `FCMatrixSingle.m`, `FCMatrix.m` | Static 256×256 2D array cache, log-space overflow handling |
 | `fermi_bose.h/.c` | `fermi.m`, `BoseFcn.m` | Identical formulas |
-| `digamma.h/.c` | `digammaFcn.m` | GSL `gsl_sf_complex_psi_e` for digamma, custom asymptotic series (20 Bernoulli) for trigamma |
+| `digamma.h/.c` | `digammaFcn.m` | Pure asymptotic series for both digamma and trigamma; fast-path (5 terms) for |z|²>900; 10 Bernoulli terms for full path |
 | `regularized.h/.c` | `regularizedI.m`, `regularizedJ.m` | Three variants: `regularized_I`, `regularized_J` (vector epsilon), `regularized_J_matrix` (matrix epsilon for n=1→1) |
 | `cotunneling.h/.c` | `sumMMr.m`, `sumMMMMrs.m`, `sumMMr11.m`, `sumMMMMrs11.m` + `m_` inners | Convergence wrappers with selective recomputation; largest module (~570 lines) |
 | `rate.h/.c` | `m_rateW.m`, `rateW.m`, `calculateAllRateW.m` | Flat array `RateStore` indexed by `[n1][n2][q1][lead_idx][q2]` |
 | `matrix.h/.c` | `generateMatrixW.m` | Same index mapping, sigma functions, peq; `1/INFINITY == 0` for tau terms |
 | `solver.h/.c` | `solve_steady_state_occupation_probabilities.m` | GSL `gsl_linalg_QR_decomp` + `gsl_linalg_QR_solve`; augmented system, clamp+renormalize |
 | `current.h/.c` | `current_from_rate_equations.m` | Same sign conventions: 0→1 R−L, 1→0 L−R, cot RL−LR |
-| `simulate.h/.c` | Main simulation loop | FC cache on heap, rate store per bias point, `-sign(Vsd)` correction |
+| `simulate.h/.c` | Main simulation loop | OpenMP `parallel for schedule(dynamic, 4)`; FC cache pre-populated and shared read-only; rate store per thread |
 | `json_io.h/.c` | JSON I/O | cJSON-based; parses `tau:"Inf"` → `INFINITY`; loads MATLAB Vsd for bit-for-bit matching |
 | `plotting.h/.c` | Plot generation | gnuplot via `popen()`; PDF + PNG; graceful fallback if gnuplot unavailable |
 | `main.c` | `run_benchmark.m` | `clock_gettime(CLOCK_MONOTONIC)` timing; 3 runs + median; validation excludes MATLAB solver artifacts |
@@ -271,31 +271,39 @@ The C port uses GSL (GNU Scientific Library) for QR decomposition and complex di
 
 | Decision | Rationale |
 |----------|-----------|
-| GSL `gsl_sf_complex_psi_e` for digamma | Native complex support in GSL 2.x; ~8x faster than hand-written asymptotic series |
-| Custom trigamma via 20-term Bernoulli asymptotic series | GSL has no complex trigamma; algorithm matches Julia/Python exactly |
+| Pure asymptotic series for digamma (no GSL) | Matches Rust/Fortran/C++ approach; eliminates GSL dependency for digamma; fast-path covers >99% of calls |
+| Custom trigamma via 10-term Bernoulli asymptotic series | GSL has no complex trigamma; algorithm matches Rust exactly |
+| Fast-path `digamma_asymptotic5` / `trigamma_asymptotic5` | 5 Bernoulli terms for \|z\|²>900; skips reflection and recurrence entirely; >99% hit rate at T=4.2K |
+| Pre-computed `DIGAMMA_COEFF[k] = B_{2(k+1)} / (2*(k+1))` | Eliminates runtime division; multiply-instead-of-divide pattern |
+| `norm_sqr` threshold instead of `cabs()` | Avoids sqrt per recurrence iteration; `re*re + im*im < 100.0` |
+| OpenMP `parallel for schedule(dynamic, 4)` | Bias points are independent; dynamic scheduling handles variable cotunneling cost |
+| FC cache pre-populated via `fc_cache_populate(fc, FC_MAX_N)` | All 256×256 entries computed before parallel region; `fc_cache_get` becomes purely read-only (thread-safe) |
 | Static 256×256 FC cache (`FCCache` struct) | Avoids hash table overhead; max N=256 covers all practical cases; O(1) lookup |
 | Flat-array `RateStore` with macro accessor | Replaces Dict/HashMap; single `malloc` per bias point; cache-friendly access pattern |
 | GSL QR decomposition (not LU) | Matches Julia/Python augmented system approach; numerically stable for ill-conditioned W |
 | cJSON (vendored, MIT) | Single .c/.h file; no build dependency; sufficient for benchmark JSON I/O |
 | gnuplot via `popen()` | No compiled plotting dependency; publication-quality LaTeX labels; PDF+PNG |
+| `-O2 -flto -march=native` (not `-O3`) | `-O3 -flto` causes 3× regression on Apple Clang due to LTO interaction; `-O2 -flto` is the optimal combination |
 | `clock_gettime(CLOCK_MONOTONIC)` | Portable high-resolution timer; works on macOS and Linux |
 
 ### Complex Digamma/Trigamma Strategy
 
-C does not have a native complex polygamma function. The implementation uses a hybrid approach:
+C does not have a native complex polygamma function. The implementation uses a pure asymptotic series approach matching the Rust port:
 
-1. **Digamma ψ(z)**: GSL's `gsl_sf_complex_psi_e(x, y, &re, &im)` — highly optimized C code, handles all complex arguments. Falls back to the asymptotic series if GSL returns an error.
+1. **Digamma ψ(z)**: Custom implementation with three tiers:
+   - **Fast-path** (`digamma_asymptotic5`): For Re(z) > 0 and |z|² > 900 — uses only 5 pre-computed Bernoulli coefficients, no reflection or recurrence. At T=4.2K, >99% of calls hit this path.
+   - **Full-path**: 10-term Bernoulli asymptotic expansion with pre-computed `DIGAMMA_COEFF` array. Recurrence shift until |z|² ≥ 100 (using `norm_sqr` to avoid `sqrt`). Reflection formula for Re(z) ≤ 0.
+   - **Fallback**: Same algorithm handles all edge cases; no GSL dependency.
 
-2. **Trigamma ψ'(z)**: Custom implementation using the same algorithm as the Julia and Python ports:
-   - Reflection formula for Re(z) ≤ 0: `ψ'(z) = (π/sin(πz))² − ψ'(1−z)`
-   - Recurrence shift until |z| ≥ 20: `ψ'(z) = ψ'(z+1) + 1/z²`
-   - Asymptotic expansion with 20 even Bernoulli numbers B₂, B₄, ..., B₄₀
+2. **Trigamma ψ'(z)**: Custom implementation with matching structure:
+   - **Fast-path** (`trigamma_asymptotic5`): For Re(z) > 0 and |z|² > 900 — 5 Bernoulli terms.
+   - **Full-path**: 10-term Bernoulli expansion, recurrence threshold |z|² ≥ 100, reflection formula.
 
-The Bernoulli coefficients are stored as compile-time `static const double` array, computed as exact rational fractions (e.g., `1.0/6.0`, `-691.0/2730.0`).
+The Bernoulli coefficients are stored as compile-time `static const double` arrays, computed as exact rational fractions (e.g., `1.0/6.0`, `-691.0/2730.0`). The `DIGAMMA_COEFF` array pre-divides by `2*(k+1)` to eliminate runtime division.
 
 ### Performance Notes
 
-The C port runs the quick spec (N=6) in ~2.3 seconds on Apple Silicon — an **809x speedup** over MATLAB (1844s), faster than Julia (5.2s) and Python (11s).
+The C port runs the quick spec (N=6) in ~0.56 seconds on Apple M5 — a **3293x speedup** over MATLAB (1844s), faster than C++ (1.2s), Fortran (1.6s), Julia (5.2s), and Python (11s).
 
 The key optimization is **factored digamma precomputation** in `regularized_I`. The digamma arguments factor into row-only and column-only terms:
 - `ψ(a1[i])` and `ψ(a3[i])` depend only on `epsilon1[i]` (row index)
@@ -308,9 +316,10 @@ Additional optimizations: trigamma uses 10 Bernoulli terms (not 20) with recurre
 Performance history on the same hardware:
 - Hand-written digamma: 428s (4x vs MATLAB)
 - + GSL `gsl_sf_complex_psi_e`: 52s (36x)
-- + factored regularized_I + optimized trigamma: **2.3s (809x)**
+- + factored regularized_I + optimized trigamma: 2.3s (809x) [quick spec, M4 Max]
+- + pure asymptotic digamma + OpenMP + LTO: **0.56s (3293x)** [quick spec, M5]
 
-**Default spec (N=15)**: **17.1 s** on Apple M5 — a **685× speedup** over MATLAB. Matches MATLAB to **6.1×10⁻⁶** (excluding solver artifacts at Vsd ≈ 0.219, 0.438). Matches Rust to **5.4×10⁻¹³**.
+**Default spec (N=15)**: **2.2 s** on Apple M5 — a **5330× speedup** over MATLAB. Matches MATLAB to **6.1×10⁻⁶** (excluding solver artifacts at Vsd ≈ 0.219, 0.438). Matches Rust to **5.4×10⁻¹³**.
 
 ### Numerical Precision Notes
 
@@ -325,9 +334,11 @@ The error budget is identical to the Julia and Python ports:
 
 ### Lessons from the C Port
 
-- **GSL complex digamma exists**: Despite common belief, GSL 2.x provides `gsl_sf_complex_psi_e` for complex digamma. Using it instead of a hand-written asymptotic series gives an 8x speedup.
-- **GSL has no complex trigamma**: You must implement this yourself. The 20-term Bernoulli asymptotic series with recurrence shift (|z| ≥ 20) and reflection formula works well. The algorithm is identical across Julia, Python, and C ports.
+- **GSL complex digamma exists but is not needed**: GSL 2.x provides `gsl_sf_complex_psi_e`, but a pure asymptotic series (matching Rust's algorithm) is equally accurate and removes the GSL dependency for digamma. GSL is still used for QR decomposition in the solver.
+- **GSL has no complex trigamma**: You must implement this yourself. The 10-term Bernoulli asymptotic series with recurrence shift (|z|² ≥ 100) and reflection formula works well.
+- **`-O3 -flto` causes regression on Apple Clang**: The combination of `-O3` with LTO causes a 3× performance regression on Apple Clang 17. Use `-O2 -flto` instead — LTO alone provides a significant speedup (10.7s vs 16.7s single-threaded for default spec). This is a known Apple Clang behavior.
 - **Static arrays beat hash tables for FC cache**: With max N=256, a 256×256 `double` array (512 KB) is faster than any hash table and has zero collision overhead.
+- **FC cache must be pre-populated for OpenMP**: The lazy-init pattern in `fc_cache_get` is not thread-safe. Pre-populating all 256×256 entries via `fc_cache_populate(fc, FC_MAX_N)` before the parallel region makes `fc_cache_get` purely read-only (safe to share across threads without synchronization).
 - **Flat rate store with macro indexing**: A single `malloc(2*2*N*2*N * sizeof(double))` with a 5D index macro is simpler and faster than nested arrays or hash maps.
 - **`1.0/INFINITY == 0.0`**: IEEE 754 guarantees this, so `tau=Inf` (unequilibrated phonons) works without special-casing the `1/tau` terms in the W matrix.
 - **cJSON is sufficient**: A 3000-line vendored library handles all the JSON I/O needs. No need for heavier dependencies like jansson or json-c.

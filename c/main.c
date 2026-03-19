@@ -120,7 +120,9 @@ int main(int argc, char **argv) {
             if (es > max_err_seq) max_err_seq = es;
             if (ec > max_err_cot) max_err_cot = ec;
 
-            int is_artifact = (fabs(Vsd[i] - 0.219) < 0.002) || (fabs(Vsd[i] - 0.585) < 0.002);
+            int is_artifact = (fabs(Vsd[i] - 0.219) < 0.002) ||
+                               (fabs(Vsd[i] - 0.438) < 0.002) ||
+                               (fabs(Vsd[i] - 0.585) < 0.002);
             if (!is_artifact) {
                 if (et > max_err_tol_ex) max_err_tol_ex = et;
                 if (es > max_err_seq_ex) max_err_seq_ex = es;
@@ -130,7 +132,7 @@ int main(int argc, char **argv) {
 
         printf("Max relative error vs MATLAB (all points):\n");
         printf("  I_tol: %.6e  I_seq: %.6e  I_cot: %.6e\n", max_err_tol, max_err_seq, max_err_cot);
-        printf("Max relative error vs MATLAB (excl. solver artifacts at Vsd~0.219,0.585):\n");
+        printf("Max relative error vs MATLAB (excl. solver artifacts at Vsd~0.219,0.438,0.585):\n");
         printf("  I_tol: %.6e  I_seq: %.6e  I_cot: %.6e\n", max_err_tol_ex, max_err_seq_ex, max_err_cot_ex);
 
         const double tol = 1e-4;

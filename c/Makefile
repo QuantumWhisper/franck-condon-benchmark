@@ -4,7 +4,7 @@
 #        ./c_benchmark default
 
 CC      ?= gcc
-CFLAGS  ?= -std=c99 -O2 -Wall -Wextra -Wno-unused-parameter
+CFLAGS  ?= -std=c99 -O2 -flto -march=native -Wall -Wextra -Wno-unused-parameter
 
 # GSL flags via gsl-config (works on macOS Homebrew and Linux)
 GSL_CFLAGS := $(shell gsl-config --cflags 2>/dev/null)
@@ -16,8 +16,21 @@ ifeq ($(GSL_CFLAGS),)
   GSL_LIBS   := -L/opt/homebrew/lib -L/usr/local/lib -lgsl -lgslcblas
 endif
 
-CFLAGS  += $(GSL_CFLAGS)
-LDFLAGS += $(GSL_LIBS) -lm
+# OpenMP detection
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S), Darwin)
+  LIBOMP_PREFIX := $(shell brew --prefix libomp 2>/dev/null)
+  ifneq ($(LIBOMP_PREFIX),)
+    OMP_CFLAGS := -Xpreprocessor -fopenmp -I$(LIBOMP_PREFIX)/include
+    OMP_LIBS   := -L$(LIBOMP_PREFIX)/lib -lomp
+  endif
+else
+  OMP_CFLAGS := -fopenmp
+  OMP_LIBS   := -fopenmp
+endif
+
+CFLAGS  += $(OMP_CFLAGS) $(GSL_CFLAGS)
+LDFLAGS += $(OMP_LIBS) $(GSL_LIBS) -lm
 
 # Source files
 SRC_DIR = src
@@ -44,7 +57,7 @@ TARGET = c_benchmark
 all: $(TARGET)
 
 $(TARGET): main.o $(OBJS)
-	$(CC) -o $@ $^ $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 main.o: main.c $(SRC_DIR)/simulate.h $(SRC_DIR)/json_io.h $(SRC_DIR)/plotting.h
 	$(CC) $(CFLAGS) -c -o $@ $<

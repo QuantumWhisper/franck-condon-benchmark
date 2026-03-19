@@ -41,10 +41,10 @@ The simulation computes I-V curves by solving quantum master equations that incl
 │   ├── src/         # Core simulation modules
 │   ├── run_benchmark.py
 │   └── requirements.txt
-├── c/               # C+GSL implementation ✅
+├── c/               # C+GSL+OpenMP implementation ✅
 │   ├── src/         # Core simulation modules (17 .h/.c files)
 │   ├── main.c       # Benchmark runner
-│   ├── Makefile     # Build for macOS + Linux
+│   ├── Makefile     # Build for macOS + Linux (auto-detects OpenMP)
 │   ├── cJSON.h/.c   # Vendored JSON library
 │   └── c_benchmark  # Compiled binary
 ├── fortran/         # Fortran implementation ✅
@@ -100,14 +100,14 @@ Uses `scipy.special.digamma` for complex digamma and a custom Numba-JIT'd trigam
 
 ```bash
 cd c
-brew install gsl gnuplot   # macOS; Linux: apt install libgsl-dev gnuplot
+brew install gsl libomp gnuplot   # macOS; Linux: apt install libgsl-dev libomp-dev gnuplot
 make
-./c_benchmark quick         # Fast validation (N=6, ~2.3 seconds)
+./c_benchmark quick         # Fast validation (N=6, ~0.56 seconds)
 ./c_benchmark default       # Full benchmark (N=15)
 ./c_benchmark               # Same as 'default'
 ```
 
-Requires GSL (GNU Scientific Library) for QR decomposition and complex digamma. Uses cJSON (vendored) for JSON I/O and gnuplot for PDF/PNG plots. No warm-up needed (compiled, not JIT).
+Requires GSL (GNU Scientific Library) for QR decomposition. Uses OpenMP for parallel bias-point computation, custom asymptotic series for complex digamma/trigamma, cJSON (vendored) for JSON I/O, and gnuplot for PDF/PNG plots. No warm-up needed (compiled, not JIT).
 
 ## Quick Start (Rust)
 
@@ -182,18 +182,18 @@ Each run produces four files in `benchmark/results/`:
 | MATLAB | 1844 s | 11725 s | 1× (reference) |
 | Python | 11 s | — ᵇ | **169×** |
 | Julia | 5.2 s | 102 s | **115×** |
-| C (GSL) | 2.3 s | 17.1 s | **685×** |
 | Fortran | 1.6 s | 12.3 s | **953×** |
 | C++ | 1.2 s | 8.7 s | **1348×** |
+| C (GSL) | 0.56 s | 2.2 s | **5330×** |
 | Rust | 0.28 s | 1.9 s | **6202×** |
 
 Speedup column refers to the default spec (N=15), the primary benchmark. All ports replace MATLAB's symbolic digamma bottleneck with native complex implementations.
 
 **Hardware:**
-- Quick spec ᵃ: Apple M4 Max (14 cores: 4E+10P, 32 GPU cores)
-- Default spec: MATLAB on Apple M4 Max; all other languages on Apple M5 (10 cores: 4S+6E, 24 GB)
+- Quick spec ᵃ: Apple M5 (10 cores: 4S+6E, 24 GB)
+- Default spec: MATLAB on Apple M4 Max (14 cores: 4E+10P, 32 GPU cores); all other languages on Apple M5
 
-ᵃ Quick-spec speedups vs MATLAB: Python 169×, Julia 358×, C 809×, Fortran 1153×, C++ 1598×, Rust 6638×.
+ᵃ Quick-spec speedups vs MATLAB: Python 169×, Julia 358×, Fortran 1153×, C++ 1598×, C 3293×, Rust 6638×.
 ᵇ Python's default spec (N=15) is too slow for practical benchmarking on consumer hardware (~30 min+ per run estimated). The quick spec (N=6) completes in 11 seconds.
 
 **Numerical accuracy (default spec):** All ports match MATLAB to **6.1×10⁻⁶** max relative error (excluding 2 solver-artifact bias points at Vsd ≈ 0.219 V and 0.438 V where the rate matrix W is ill-conditioned and different linear solvers give different results). Non-MATLAB ports agree with each other to **<5×10⁻¹³**.
@@ -204,9 +204,9 @@ Speedup column refers to the default spec (N=15), the primary benchmark. All por
 |----------|--------|-------------------|-------|
 | MATLAB | ✅ Reference | 1× | Symbolic Math Toolbox required |
 | Rust | ✅ Complete | **6202×** | Fastest. Rayon parallel + optimized digamma |
+| C (GSL) | ✅ Complete | **5330×** | OpenMP parallel + pure asymptotic digamma + LTO |
 | C++ | ✅ Complete | **1348×** | OpenMP parallel + Eigen QR |
 | Fortran | ✅ Complete | **953×** | LAPACK (Accelerate) + Rust-derived digamma |
-| C (GSL) | ✅ Complete | **685×** | GSL digamma + factored precomputation |
 | Julia | ✅ Complete | **115×** | SpecialFunctions.jl digamma |
 | Python (Numba) | ✅ Complete | — | 169× on quick spec; default spec too slow |
 
